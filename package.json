@@ -12,8 +12,11 @@
   "license": "ISC",
   "dependencies": {
     "@types/node": "^22.13.11",
+    "autoprefixer": "^10.4.21",
     "express": "^5.1.0",
     "openai": "^6.1.0",
-    "pdfkit": "^0.17.2"
+    "pdfkit": "^0.17.2",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^4.1.14"
   }
 }
