@@ -1,0 +1,44 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Invoice Generator</title>
+</head>
+<body>
+  <h1>Invoice Generator</h1>
+  <form id="invoiceForm">
+    <label>Seller: <input name="sellerName" value="ACME Exporters"></label><br><br>
+    <label>Buyer: <input name="buyerName" value="Global Import Ltd"></label><br><br>
+    <label>Items (JSON):<br>
+      <textarea name="items" rows="6" cols="60">[{"description":"Widget A","qty":2,"unitPrice":10},{"description":"Widget B","qty":1,"unitPrice":25}]</textarea>
+    </label><br><br>
+    <button type="submit">Generate Invoice PDF</button>
+  </form>
+
+  <script>
+    document.getElementById('invoiceForm').addEventListener('submit', async function(e) {
+      e.preventDefault();
+      const form = e.target;
+      const data = {
+        sellerName: form.sellerName.value,
+        buyerName: form.buyerName.value,
+        items: form.items.value
+      };
+      const res = await fetch('/generate-invoice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      });
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'invoice.pdf';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    });
+  </script>
+</body>
+</html>
