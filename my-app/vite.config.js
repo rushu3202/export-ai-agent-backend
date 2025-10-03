@@ -6,7 +6,7 @@ export default defineConfig({
   server: {
     host: "0.0.0.0",
     port: 5000,
-    strictPort: false,
+    strictPort: true,
     proxy: {
       "/generate-invoice": {
         target: "http://localhost:3001",
