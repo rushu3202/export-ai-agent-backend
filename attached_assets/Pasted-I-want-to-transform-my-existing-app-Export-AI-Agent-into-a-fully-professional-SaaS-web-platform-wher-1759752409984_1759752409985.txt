@@ -1,0 +1,237 @@
+I want to transform my existing app Export AI Agent into a fully professional SaaS web platform where users can sign up, log in, subscribe to a paid plan, and use AI export automation tools (like invoice generator, export forms, shipment tracker, etc.).
+
+🧠 CORE GOALS
+
+Full login/signup using Supabase Auth
+
+Stripe subscriptions (Free & Pro plans)
+
+Billing management (Stripe Customer Portal)
+
+Payment history dashboard
+
+Store all user invoices and activities in Supabase
+
+Maintain my current tools (invoice generator, forms, AI chat assistant, shipment tracker)
+
+Create a professional, responsive layout using React + TailwindCSS
+
+⚙️ BACKEND SETUP (Node.js / Express)
+
+Use server.js as main backend file.
+
+Install:
+
+npm install express cors body-parser stripe dotenv @supabase/supabase-js
+
+
+Backend endpoints:
+
+POST /api/create-checkout-session → creates Stripe session for subscriptions.
+
+POST /api/webhook → listens for Stripe webhook events and updates Supabase user data.
+
+GET /api/billing-portal → creates Stripe billing portal session.
+
+POST /api/save-invoice → stores user invoices in Supabase.
+
+Example server.js:
+
+import express from "express";
+import cors from "cors";
+import Stripe from "stripe";
+import bodyParser from "body-parser";
+import dotenv from "dotenv";
+import { createClient } from "@supabase/supabase-js";
+
+dotenv.config();
+
+const app = express();
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
+
+app.use(cors());
+app.use(bodyParser.json());
+
+// ✅ Create Checkout Session
+app.post("/api/create-checkout-session", async (req, res) => {
+  try {
+    const { userEmail } = req.body;
+    const session = await stripe.checkout.sessions.create({
+      mode: "subscription",
+      payment_method_types: ["card"],
+      line_items: [{ price: "price_XXXXXXX", quantity: 1 }], // replace with actual Stripe Price ID
+      customer_email: userEmail,
+      success_url: `${process.env.FRONTEND_URL}/success`,
+      cancel_url: `${process.env.FRONTEND_URL}/billing`,
+    });
+    res.json({ url: session.url });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ✅ Billing Portal
+app.get("/api/billing-portal", async (req, res) => {
+  const { customerId } = req.query;
+  const portalSession = await stripe.billingPortal.sessions.create({
+    customer: customerId,
+    return_url: `${process.env.FRONTEND_URL}/dashboard`,
+  });
+  res.json({ url: portalSession.url });
+});
+
+// ✅ Webhook Listener
+app.post("/api/webhook", bodyParser.raw({ type: "application/json" }), (req, res) => {
+  const sig = req.headers["stripe-signature"];
+  let event;
+  try {
+    event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
+  } catch (err) {
+    res.status(400).send(`Webhook Error: ${err.message}`);
+    return;
+  }
+
+  if (event.type === "checkout.session.completed") {
+    const session = event.data.object;
+    console.log("✅ Payment success for:", session.customer_email);
+    // Update Supabase user plan
+  }
+
+  res.json({ received: true });
+});
+
+app.listen(3000, () => console.log("✅ Backend running on port 3000"));
+
+🧩 FRONTEND STRUCTURE (React + Vite + TailwindCSS)
+
+Pages:
+
+/login → User login/signup
+
+/dashboard → User stats & AI tools
+
+/billing → Upgrade & payment history
+
+/invoice → Invoice generator
+
+/forms → Export forms assistant
+
+/tracker → Shipment tracker
+
+/profile → User profile
+
+Components:
+
+Navbar (with logo + user menu)
+
+Sidebar navigation
+
+Dashboard cards (Invoices generated, Forms completed, etc.)
+
+🧾 Example Frontend Code (App.jsx)
+import { useState, useEffect } from "react";
+import { supabase } from "./supabaseClient";
+import axios from "axios";
+
+export default function App() {
+  const [user, setUser] = useState(null);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => setUser(data.session?.user));
+    supabase.auth.onAuthStateChange((_event, session) => setUser(session?.user));
+  }, []);
+
+  if (!user) {
+    return (
+      <div className="flex flex-col items-center justify-center h-screen">
+        <h1 className="text-3xl font-bold mb-4">Welcome to Export AI Agent</h1>
+        <button
+          onClick={() => supabase.auth.signInWithOAuth({ provider: "google" })}
+          className="bg-blue-600 text-white px-6 py-2 rounded"
+        >
+          Sign in with Google
+        </button>
+      </div>
+    );
+  }
+
+  const handleCheckout = async () => {
+    const res = await axios.post("/api/create-checkout-session", { userEmail: user.email });
+    window.location.href = res.data.url;
+  };
+
+  const handleBillingPortal = async () => {
+    const res = await axios.get(`/api/billing-portal?customerId=${user.id}`);
+    window.location.href = res.data.url;
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-100">
+      <nav className="flex justify-between p-4 bg-white shadow">
+        <h1 className="text-xl font-semibold">Export AI Agent</h1>
+        <div className="flex gap-4 items-center">
+          <button onClick={handleBillingPortal} className="text-blue-500">Billing</button>
+          <button onClick={() => supabase.auth.signOut()} className="text-red-500">Logout</button>
+        </div>
+      </nav>
+
+      <main className="p-8">
+        <h2 className="text-2xl mb-4">Welcome, {user.email}</h2>
+        <div className="grid grid-cols-2 gap-6">
+          <button onClick={handleCheckout} className="bg-green-600 text-white p-4 rounded-lg">Upgrade to Pro (£9.99/month)</button>
+          <a href="/invoice" className="bg-blue-600 text-white p-4 rounded-lg">Generate Invoice</a>
+          <a href="/forms" className="bg-purple-600 text-white p-4 rounded-lg">Export Forms</a>
+          <a href="/tracker" className="bg-yellow-500 text-white p-4 rounded-lg">Track Shipment</a>
+        </div>
+      </main>
+    </div>
+  );
+}
+
+🌍 Environment Variables
+
+Add these to Replit Secrets:
+
+SUPABASE_URL=your_supabase_project_url
+SUPABASE_KEY=your_supabase_anon_key
+STRIPE_SECRET_KEY=your_stripe_secret_key
+STRIPE_WEBHOOK_SECRET=your_stripe_webhook_secret
+FRONTEND_URL=https://export-agent-invoice-rspats2739.replit.app
+
+
+In frontend .env file:
+
+VITE_SUPABASE_URL=your_supabase_project_url
+VITE_SUPABASE_KEY=your_supabase_anon_key
+VITE_STRIPE_PUBLIC_KEY=your_stripe_publishable_key
+
+🧭 Final Look & Feel
+
+Clean SaaS dashboard layout
+
+Simple navigation sidebar
+
+Logged-in user info at top right
+
+Billing page shows payment history (fetch from Stripe API)
+
+Fully responsive for desktop and mobile
+
+Modern color scheme (white, blue, green accents)
+
+🏁 Goal
+
+Deliver a ready-to-publish Export AI Agent SaaS that includes:
+
+✅ Authentication (Supabase)
+
+✅ Stripe Billing + Portal
+
+✅ Dashboard UI
+
+✅ Invoice Generator + AI Tools
+
+✅ User-based data tracking
+
+✅ Ready for monetization and sale
