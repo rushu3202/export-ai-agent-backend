@@ -1,0 +1,95 @@
+I want you to build a full-stack AI Export Agent web application that helps exporters automate their work.
+
+Core Purpose:
+
+Exporters currently go through long and complex procedures: generating invoices, filling export forms, checking HS codes, tracking shipments, and preparing compliance documents. I want this app to act like a virtual export assistant that can do most of the work for them.
+
+Features Needed:
+
+Frontend (React + Tailwind + Vite)
+
+Clean and professional UI with a dashboard layout.
+
+Pages:
+
+Home/Dashboard – Overview of exporter tools.
+
+Invoice Generator – Form where users input buyer/seller details, products, quantity, price, etc. Then download invoice as PDF.
+
+Export Forms Assistant – Step-by-step AI-guided form filling (e.g., Shipping Bill, Bill of Lading, Packing List).
+
+AI Chat Assistant – Exporters can chat with the AI to ask questions about procedures, documentation, compliance, or customs.
+
+Shipment Tracker – Placeholder section for entering tracking numbers (future feature).
+
+Backend (Node.js + Express)
+
+Expose secure API routes:
+
+/api/generate-invoice → generates invoice PDF (use pdfkit or puppeteer).
+
+/api/fill-form → AI-assisted form completion (calls OpenAI API securely).
+
+/api/ask-ai → Chat endpoint for export-related queries.
+
+Must hide the OpenAI API key in server-side .env.
+
+Serve frontend build files after deployment.
+
+AI Integration
+
+Use OpenAI GPT API (via backend only) for:
+
+Generating proper export documents.
+
+Explaining procedures (compliance, HS codes, shipping rules, etc.).
+
+Assisting exporters with step-by-step instructions.
+
+PDF Generation
+
+Allow users to generate downloadable invoices and forms in PDF format.
+
+Example: When exporter fills buyer, seller, product details → generate professional invoice.
+
+Tech Stack
+
+Frontend: React + Tailwind + Vite.
+
+Backend: Node.js + Express.
+
+Database: (optional) MongoDB or JSON for saving invoices.
+
+Deployment: Should run on Replit with one-click "Run" support.
+
+Deliverables:
+
+/frontend → React + Tailwind UI.
+
+/backend → Node.js Express server with APIs.
+
+README.md → Instructions to run locally and deploy.
+
+Workflow:
+
+Exporter logs in → chooses "Generate Invoice" → fills form → downloads PDF.
+
+Exporter chooses "Fill Export Forms" → AI asks questions → fills standard forms automatically.
+
+Exporter uses AI chat → asks about procedures, compliance, or best practices.
+
+Example User Flow:
+
+Exporter signs in.
+
+Goes to "Invoice Generator".
+
+Fills buyer/seller info and product details.
+
+Clicks Generate Invoice → PDF downloads.
+
+If they want to export → AI guides them step by step through forms & compliance.
+
+They can ask AI anything about exporting in the Chat section.
+
+Build this entire project in Replit with working code.

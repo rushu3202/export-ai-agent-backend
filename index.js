@@ -216,23 +216,153 @@ app.post("/generate-invoice", async (req, res) => {
   }
 });
 
-// Root route - serve index.html
-app.get("/", (req, res) => {
-  const indexPath = path.join(distFolder, "index.html");
-  if (fs.existsSync(indexPath)) {
-    res.sendFile(indexPath);
+// AI Chat Assistant endpoint
+app.post("/api/ask-ai", async (req, res) => {
+  try {
+    const { message } = req.body;
+    
+    if (!message) {
+      return res.status(400).json({ error: "Message is required" });
+    }
+
+    if (!openai) {
+      return res.json({
+        response: "I'm currently running in offline mode. Please configure the OPENAI_API_KEY to enable AI assistance. However, I can still help with basic export information:\n\n• HS codes classify products for international trade\n• Common export documents include: Commercial Invoice, Packing List, Bill of Lading, Certificate of Origin\n• Always check destination country's import regulations\n• Incoterms define responsibilities between buyer and seller"
+      });
+    }
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: "You are an expert export advisor helping businesses with international trade. Provide clear, accurate information about export procedures, documentation, compliance, HS codes, customs, and shipping. Be professional but approachable."
+        },
+        { role: "user", content: message }
+      ],
+      max_tokens: 500,
+    });
+
+    res.json({ response: completion.choices[0].message.content });
+  } catch (err) {
+    console.error("AI chat error:", err);
+    res.status(500).json({ error: "Failed to get AI response" });
+  }
+});
+
+// AI Form Filling Assistant endpoint
+app.post("/api/fill-form", async (req, res) => {
+  try {
+    const { formType, formData, currentStep } = req.body;
+    
+    if (!formType) {
+      return res.status(400).json({ error: "Form type is required" });
+    }
+
+    if (!openai) {
+      return res.json({
+        suggestion: "AI form assistance is currently offline. Please fill out the form manually. Common tips:\n\n• Ensure all company names match official registration\n• HS codes must be accurate for customs clearance\n• Verify consignee details with your buyer\n• Double-check weight and packaging information"
+      });
+    }
+
+    const formContext = {
+      shipping_bill: "a Shipping Bill for customs clearance in exports",
+      bill_of_lading: "a Bill of Lading document for cargo shipment",
+      packing_list: "a Packing List detailing goods being shipped",
+      certificate_of_origin: "a Certificate of Origin proving goods' manufacturing country"
+    };
+
+    const prompt = `Help fill out ${formContext[formType] || 'an export form'}. Current data: ${JSON.stringify(formData)}. Provide helpful guidance for completing remaining fields accurately.`;
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: "You are an export documentation expert. Help users fill out export forms correctly by providing guidance, suggestions, and best practices."
+        },
+        { role: "user", content: prompt }
+      ],
+      max_tokens: 300,
+    });
+
+    res.json({ suggestion: completion.choices[0].message.content });
+  } catch (err) {
+    console.error("Form fill error:", err);
+    res.status(500).json({ error: "Failed to get form assistance" });
+  }
+});
+
+// Generate Export Form PDF endpoint
+app.post("/api/generate-form", async (req, res) => {
+  try {
+    const { formType, formData } = req.body;
+    
+    if (!formType || !formData) {
+      return res.status(400).json({ error: "Form type and data are required" });
+    }
+
+    const doc = new PDFDocument({ margin: 50, size: "A4" });
+
+    const formTitles = {
+      shipping_bill: "SHIPPING BILL",
+      bill_of_lading: "BILL OF LADING",
+      packing_list: "PACKING LIST",
+      certificate_of_origin: "CERTIFICATE OF ORIGIN"
+    };
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename=${formType}-${Date.now()}.pdf`
+    );
+
+    doc.pipe(res);
+
+    doc.fontSize(20).text(formTitles[formType] || "EXPORT FORM", { align: "center" });
+    doc.moveDown(2);
+
+    doc.fontSize(12);
+    Object.entries(formData).forEach(([key, value]) => {
+      const label = key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+      doc.font("Helvetica-Bold").text(`${label}:`, { continued: false });
+      doc.font("Helvetica").text(value || "N/A");
+      doc.moveDown(0.5);
+    });
+
+    doc.moveDown(2);
+    doc.fontSize(10).fillColor("gray").text(`Generated on ${new Date().toLocaleDateString()}`, { align: "center" });
+
+    doc.end();
+  } catch (err) {
+    console.error("Form generation error:", err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: "Failed to generate form" });
+    }
+  }
+});
+
+// SPA fallback - serve React app for all non-API routes using middleware
+app.use((req, res, next) => {
+  if (req.method === 'GET' && !req.path.startsWith('/api') && !req.path.includes('.')) {
+    const indexPath = path.join(distFolder, "index.html");
+    if (fs.existsSync(indexPath)) {
+      res.sendFile(indexPath);
+    } else {
+      res.status(200).send(`
+        <html>
+          <head><title>Export AI Agent</title></head>
+          <body style="font-family: Arial; padding: 40px; text-align: center;">
+            <h1>Export AI Agent Backend</h1>
+            <p>Server is running successfully!</p>
+            <p>Build your frontend with: <code>cd my-app && npm run build</code></p>
+            <p>Then copy files to /dist folder</p>
+          </body>
+        </html>
+      `);
+    }
   } else {
-    res.status(200).send(`
-      <html>
-        <head><title>Export AI Agent</title></head>
-        <body style="font-family: Arial; padding: 40px; text-align: center;">
-          <h1>Export AI Agent Backend</h1>
-          <p>Server is running successfully!</p>
-          <p>Build your frontend with: <code>cd my-app && npm run build</code></p>
-          <p>Then copy files to /dist folder</p>
-        </body>
-      </html>
-    `);
+    next();
   }
 });
 
