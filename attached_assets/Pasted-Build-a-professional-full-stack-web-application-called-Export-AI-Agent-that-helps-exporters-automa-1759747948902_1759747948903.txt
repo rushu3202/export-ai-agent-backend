@@ -1,0 +1,201 @@
+Build a professional full-stack web application called “Export AI Agent” that helps exporters automate their daily export operations.
+
+The app should have a modern SaaS dashboard interface, built using:
+
+Frontend: React + Vite + Tailwind CSS + Framer Motion
+
+Backend: Node.js + Express
+
+PDF generation: pdfkit or jspdf (for export invoices)
+
+AI: OpenAI API (for export-related guidance and automation)
+
+🧭 Project Overview
+
+Export AI Agent should act like a digital assistant that automates everything for exporters — including invoice generation, form filling, AI chat guidance, and shipment tracking.
+
+🎨 Frontend (React)
+
+Create a professional dashboard layout with:
+
+Sidebar navigation with links:
+
+🏠 Dashboard
+
+🧾 Invoice Generator
+
+📋 Export Forms
+
+💬 AI Chat Assistant
+
+🚢 Shipment Tracker
+
+Header: “Export AI Agent – Automate Your Exports”
+
+Color theme: Blue & White (business/professional look)
+
+Font: Sans-serif (clean and minimal)
+
+Animations: Smooth transitions between pages (Framer Motion)
+
+Fully responsive design for desktop, tablet, and mobile.
+
+🧾 Dashboard Page
+
+Show the following stats dynamically (start with mock values):
+
+Invoices Generated
+
+Forms Completed
+
+AI Queries
+
+Shipment Tracked
+
+Add a “Get Started” button linking to the Invoice Generator.
+
+💼 Invoice Generator Page
+
+Input fields for:
+
+Seller Name
+
+Buyer Name
+
+Items (either JSON input or Add Item form)
+
+“Generate PDF” button → sends data to backend /generate-invoice endpoint.
+
+On success → downloads the invoice PDF file.
+
+Backend should:
+
+Use pdfkit to generate a professional-looking invoice with:
+
+Header: “Export Invoice”
+
+Seller & Buyer details
+
+Table of items (description, qty, price, total)
+
+Footer: “Powered by Export AI Agent”
+
+📋 Export Forms Assistant Page
+
+Form to fill export documents (like shipping bill, packing list, etc.)
+
+Connect to /export-forms endpoint (AI-powered)
+
+Backend uses OpenAI API to generate filled forms or summaries.
+
+💬 AI Chat Assistant Page
+
+Chat interface (like ChatGPT)
+
+Users can ask:
+
+“How do I get an export license?”
+
+“Explain the process for export customs clearance.”
+
+Backend endpoint /chat
+
+Uses OpenAI API for answers in friendly, simple tone
+
+Keeps short memory of conversation
+
+🚢 Shipment Tracker Page
+
+Input tracking number
+
+Display mock shipment updates (AI-generated for now)
+
+Backend /track returns simulated responses like:
+
+“Shipment left port Mumbai – ETA 7 days.”
+
+⚙️ Backend (Node + Express)
+
+Endpoints:
+
+POST /generate-invoice → Generates PDF and sends it back
+
+POST /export-forms → AI generates filled export forms
+
+POST /chat → AI replies to export-related queries
+
+POST /track → Returns mock shipment updates
+
+Use:
+
+express
+
+pdfkit
+
+cors
+
+body-parser
+
+dotenv (for OpenAI API key)
+
+openai (for AI responses)
+
+Make sure the backend:
+
+Works seamlessly with the React frontend
+
+Returns PDFs or JSON responses correctly
+
+🌐 Deployment
+
+Host on Replit with a public domain
+
+Frontend built with npm run build and served via Express from dist folder
+
+The final app URL should look like:
+https://export-agent-ai.replit.app
+
+✅ Final Result
+
+A working Export AI Agent app with:
+
+Dashboard interface
+
+Working invoice generator (PDF downloads)
+
+AI chat answering export questions
+
+Form assistance and shipment tracker (mock working)
+
+Fully responsive design
+
+Professional and ready to demo or sell
+
+🧩 Stretch Goals (Optional)
+
+If possible, also include:
+
+Login/signup (with Firebase or JWT)
+
+Save previous invoices in history
+
+Dark mode toggle
+
+📦 Deliverables
+
+Complete frontend (React + Tailwind)
+
+Backend (Node.js + Express)
+
+Working build command: npm run build
+
+Working backend start: node server.js
+
+Fully connected UI + backend with tested endpoints
+
+💬 Tone for the AI Assistant
+
+The AI should sound professional yet friendly, using short, clear sentences.
+Example style:
+
+“Hello! I’m your Export AI Assistant. I can help you generate invoices, fill export forms, and track shipments. What would you like to do today?”

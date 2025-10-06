@@ -18,6 +18,7 @@
     "autoprefixer": "^10.4.21",
     "express": "^5.1.0",
     "express-history-api-fallback": "^2.2.1",
+    "framer-motion": "^12.23.22",
     "openai": "^6.1.0",
     "pdfkit": "^0.17.2",
     "postcss": "^8.5.6",

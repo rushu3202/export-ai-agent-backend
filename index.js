@@ -216,10 +216,10 @@ app.post("/generate-invoice", async (req, res) => {
   }
 });
 
-// AI Chat Assistant endpoint
-app.post("/api/ask-ai", async (req, res) => {
+// AI Chat Assistant endpoint with conversation memory
+app.post("/chat", async (req, res) => {
   try {
-    const { message } = req.body;
+    const { message, history } = req.body;
     
     if (!message) {
       return res.status(400).json({ error: "Message is required" });
@@ -227,19 +227,30 @@ app.post("/api/ask-ai", async (req, res) => {
 
     if (!openai) {
       return res.json({
-        response: "I'm currently running in offline mode. Please configure the OPENAI_API_KEY to enable AI assistance. However, I can still help with basic export information:\n\n• HS codes classify products for international trade\n• Common export documents include: Commercial Invoice, Packing List, Bill of Lading, Certificate of Origin\n• Always check destination country's import regulations\n• Incoterms define responsibilities between buyer and seller"
+        response: "Hello! I'm your Export AI Assistant. I'm currently running in offline mode, but I can still help with basic information:\n\n• HS codes classify products for international trade\n• Common export documents include: Commercial Invoice, Packing List, Bill of Lading, Certificate of Origin\n• Always check destination country's import regulations\n• Incoterms define responsibilities between buyer and seller\n\nWhat would you like to know?"
       });
     }
 
+    // Build conversation messages with history
+    const messages = [
+      {
+        role: "system",
+        content: "You are an expert export advisor helping businesses with international trade. Provide clear, accurate information about export procedures, documentation, compliance, HS codes, customs, and shipping. Be professional yet friendly. Use short, clear sentences. Answer questions concisely and helpfully."
+      }
+    ];
+
+    // Add conversation history (last 5 exchanges to stay within token limits)
+    if (Array.isArray(history) && history.length > 0) {
+      const recentHistory = history.slice(-10); // Last 10 messages
+      messages.push(...recentHistory);
+    }
+
+    // Add current user message
+    messages.push({ role: "user", content: message });
+
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
-      messages: [
-        {
-          role: "system",
-          content: "You are an expert export advisor helping businesses with international trade. Provide clear, accurate information about export procedures, documentation, compliance, HS codes, customs, and shipping. Be professional but approachable."
-        },
-        { role: "user", content: message }
-      ],
+      messages: messages,
       max_tokens: 500,
     });
 
@@ -250,18 +261,57 @@ app.post("/api/ask-ai", async (req, res) => {
   }
 });
 
-// AI Form Filling Assistant endpoint
-app.post("/api/fill-form", async (req, res) => {
+// Export Forms Assistant endpoint - AI generates or fills export forms
+app.post("/export-forms", async (req, res) => {
   try {
-    const { formType, formData, currentStep } = req.body;
+    const { formType, formData, action } = req.body;
     
     if (!formType) {
       return res.status(400).json({ error: "Form type is required" });
     }
 
+    // If action is 'generate', create PDF
+    if (action === 'generate' && formData) {
+      const doc = new PDFDocument({ margin: 50, size: "A4" });
+
+      const formTitles = {
+        shipping_bill: "SHIPPING BILL",
+        bill_of_lading: "BILL OF LADING",
+        packing_list: "PACKING LIST",
+        certificate_of_origin: "CERTIFICATE OF ORIGIN"
+      };
+
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename=${formType}-${Date.now()}.pdf`
+      );
+
+      doc.pipe(res);
+
+      doc.fontSize(20).text(formTitles[formType] || "EXPORT FORM", { align: "center" });
+      doc.moveDown(2);
+
+      doc.fontSize(12);
+      Object.entries(formData).forEach(([key, value]) => {
+        const label = key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+        doc.font("Helvetica-Bold").text(`${label}:`, { continued: false });
+        doc.font("Helvetica").text(value || "N/A");
+        doc.moveDown(0.5);
+      });
+
+      doc.moveDown(2);
+      doc.fontSize(10).fillColor("gray").text(`Powered by Export AI Agent`, { align: "center" });
+
+      doc.end();
+      return;
+    }
+
+    // Otherwise, provide AI assistance for filling the form
     if (!openai) {
       return res.json({
-        suggestion: "AI form assistance is currently offline. Please fill out the form manually. Common tips:\n\n• Ensure all company names match official registration\n• HS codes must be accurate for customs clearance\n• Verify consignee details with your buyer\n• Double-check weight and packaging information"
+        suggestion: "AI form assistance is currently offline. Please fill out the form manually. Common tips:\n\n• Ensure all company names match official registration\n• HS codes must be accurate for customs clearance\n• Verify consignee details with your buyer\n• Double-check weight and packaging information",
+        filledData: formData || {}
       });
     }
 
@@ -272,73 +322,99 @@ app.post("/api/fill-form", async (req, res) => {
       certificate_of_origin: "a Certificate of Origin proving goods' manufacturing country"
     };
 
-    const prompt = `Help fill out ${formContext[formType] || 'an export form'}. Current data: ${JSON.stringify(formData)}. Provide helpful guidance for completing remaining fields accurately.`;
+    const prompt = `Help fill out ${formContext[formType] || 'an export form'}. Current data: ${JSON.stringify(formData || {})}. Provide helpful guidance for completing remaining fields accurately. Be concise and practical.`;
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
         {
           role: "system",
-          content: "You are an export documentation expert. Help users fill out export forms correctly by providing guidance, suggestions, and best practices."
+          content: "You are an export documentation expert. Help users fill out export forms correctly by providing guidance, suggestions, and best practices. Be concise and friendly."
         },
         { role: "user", content: prompt }
       ],
       max_tokens: 300,
     });
 
-    res.json({ suggestion: completion.choices[0].message.content });
+    res.json({ 
+      suggestion: completion.choices[0].message.content,
+      filledData: formData || {}
+    });
   } catch (err) {
-    console.error("Form fill error:", err);
-    res.status(500).json({ error: "Failed to get form assistance" });
+    console.error("Export forms error:", err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: "Failed to process export form" });
+    }
   }
 });
 
-// Generate Export Form PDF endpoint
-app.post("/api/generate-form", async (req, res) => {
+// Shipment Tracking endpoint - AI-generated mock tracking updates
+app.post("/track", async (req, res) => {
   try {
-    const { formType, formData } = req.body;
+    const { trackingNumber } = req.body;
     
-    if (!formType || !formData) {
-      return res.status(400).json({ error: "Form type and data are required" });
+    if (!trackingNumber) {
+      return res.status(400).json({ error: "Tracking number is required" });
     }
 
-    const doc = new PDFDocument({ margin: 50, size: "A4" });
+    if (!openai) {
+      // Fallback mock response
+      const mockStatuses = [
+        "Shipment received at origin facility",
+        "Departed from Mumbai port – ETA 7 days",
+        "In transit via sea freight",
+        "Arrived at destination port",
+        "Customs clearance in progress"
+      ];
+      const randomStatus = mockStatuses[Math.floor(Math.random() * mockStatuses.length)];
+      
+      return res.json({
+        trackingNumber,
+        status: randomStatus,
+        location: "Mumbai, India",
+        estimatedDelivery: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toLocaleDateString(),
+        updates: [
+          { date: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toLocaleDateString(), event: "Shipment received at warehouse" },
+          { date: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toLocaleDateString(), event: "Loaded onto vessel" },
+          { date: new Date().toLocaleDateString(), event: randomStatus }
+        ]
+      });
+    }
 
-    const formTitles = {
-      shipping_bill: "SHIPPING BILL",
-      bill_of_lading: "BILL OF LADING",
-      packing_list: "PACKING LIST",
-      certificate_of_origin: "CERTIFICATE OF ORIGIN"
-    };
+    // Use AI to generate realistic tracking updates
+    const prompt = `Generate a realistic shipment tracking update for tracking number ${trackingNumber}. Include current status, location, and estimated delivery. Format as: Status | Location | ETA`;
 
-    res.setHeader("Content-Type", "application/pdf");
-    res.setHeader(
-      "Content-Disposition",
-      `attachment; filename=${formType}-${Date.now()}.pdf`
-    );
-
-    doc.pipe(res);
-
-    doc.fontSize(20).text(formTitles[formType] || "EXPORT FORM", { align: "center" });
-    doc.moveDown(2);
-
-    doc.fontSize(12);
-    Object.entries(formData).forEach(([key, value]) => {
-      const label = key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-      doc.font("Helvetica-Bold").text(`${label}:`, { continued: false });
-      doc.font("Helvetica").text(value || "N/A");
-      doc.moveDown(0.5);
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: "You are a shipment tracking system. Generate realistic shipping updates for international cargo. Be concise and professional."
+        },
+        { role: "user", content: prompt }
+      ],
+      max_tokens: 150,
     });
 
-    doc.moveDown(2);
-    doc.fontSize(10).fillColor("gray").text(`Generated on ${new Date().toLocaleDateString()}`, { align: "center" });
+    const response = completion.choices[0].message.content;
+    const parts = response.split('|').map(p => p.trim());
 
-    doc.end();
+    res.json({
+      trackingNumber,
+      status: parts[0] || "In transit",
+      location: parts[1] || "International waters",
+      estimatedDelivery: parts[2] || "7-10 business days",
+      updates: [
+        { date: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toLocaleDateString(), event: "Shipment picked up from shipper" },
+        { date: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toLocaleDateString(), event: "Arrived at origin port" },
+        { date: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toLocaleDateString(), event: "Departed from origin – sea freight" },
+        { date: new Date().toLocaleDateString(), event: parts[0] || "Shipment in transit" }
+      ],
+      message: response
+    });
   } catch (err) {
-    console.error("Form generation error:", err);
-    if (!res.headersSent) {
-      res.status(500).json({ error: "Failed to generate form" });
-    }
+    console.error("Tracking error:", err);
+    res.status(500).json({ error: "Failed to track shipment" });
   }
 });
 
