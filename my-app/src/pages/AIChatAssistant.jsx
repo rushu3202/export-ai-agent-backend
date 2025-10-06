@@ -34,14 +34,24 @@ export default function AIChatAssistant() {
 
     const userMessage = input.trim();
     setInput('');
-    setMessages([...messages, { role: 'user', content: userMessage }]);
+    const newMessages = [...messages, { role: 'user', content: userMessage }];
+    setMessages(newMessages);
     setLoading(true);
 
     try {
-      const response = await fetch('/api/ask-ai', {
+      // Build conversation history for context
+      const history = messages.slice(1).map(msg => ({
+        role: msg.role,
+        content: msg.content
+      }));
+
+      const response = await fetch('/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: userMessage }),
+        body: JSON.stringify({ 
+          message: userMessage,
+          history: history
+        }),
       });
 
       if (!response.ok) throw new Error('Failed to get AI response');

@@ -67,13 +67,13 @@ export default function ExportForms() {
   const getAIAssistance = async () => {
     setLoading(true);
     try {
-      const response = await fetch('/api/fill-form', {
+      const response = await fetch('/export-forms', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           formType: selectedForm,
           formData: formData,
-          currentStep: currentStep,
+          action: 'assist'
         }),
       });
 
@@ -91,12 +91,13 @@ export default function ExportForms() {
   const generateFormPDF = async () => {
     setLoading(true);
     try {
-      const response = await fetch('/api/generate-form', {
+      const response = await fetch('/export-forms', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           formType: selectedForm,
           formData: formData,
+          action: 'generate'
         }),
       });
 

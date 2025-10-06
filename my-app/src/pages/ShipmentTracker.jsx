@@ -1,24 +1,37 @@
 import { useState } from 'react';
-import { Package, Search, Truck, Ship, Plane, CheckCircle } from 'lucide-react';
+import { Package, Search, Truck, Ship, Plane, CheckCircle, Loader } from 'lucide-react';
 
 export default function ShipmentTracker() {
   const [trackingNumber, setTrackingNumber] = useState('');
-  const [showResults, setShowResults] = useState(false);
+  const [trackingData, setTrackingData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
-  const handleTrack = (e) => {
+  const handleTrack = async (e) => {
     e.preventDefault();
-    if (trackingNumber.trim()) {
-      setShowResults(true);
+    if (!trackingNumber.trim()) return;
+
+    setLoading(true);
+    setError('');
+    setTrackingData(null);
+
+    try {
+      const response = await fetch('/track', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trackingNumber: trackingNumber.trim() }),
+      });
+
+      if (!response.ok) throw new Error('Failed to track shipment');
+
+      const data = await response.json();
+      setTrackingData(data);
+    } catch (err) {
+      setError('Unable to track shipment. Please check your tracking number and try again.');
+    } finally {
+      setLoading(false);
     }
   };
-
-  const demoStatus = [
-    { status: 'Order Placed', completed: true, icon: CheckCircle, date: '2024-01-15' },
-    { status: 'Picked Up', completed: true, icon: Package, date: '2024-01-16' },
-    { status: 'In Transit', completed: true, icon: Truck, date: '2024-01-18' },
-    { status: 'At Port', completed: false, icon: Ship, date: 'Est. 2024-01-25' },
-    { status: 'Out for Delivery', completed: false, icon: Truck, date: 'Est. 2024-01-30' },
-  ];
 
   return (
     <div className="max-w-5xl mx-auto">
@@ -50,69 +63,56 @@ export default function ShipmentTracker() {
         </form>
       </div>
 
-      {showResults && (
+      {loading && (
+        <div className="bg-white rounded-lg shadow-lg p-12 text-center">
+          <Loader className="w-12 h-12 text-blue-600 mx-auto mb-4 animate-spin" />
+          <p className="text-gray-600">Tracking your shipment...</p>
+        </div>
+      )}
+
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-center">
+          <p className="text-red-800">{error}</p>
+        </div>
+      )}
+
+      {trackingData && !loading && (
         <div className="bg-white rounded-lg shadow-lg p-6">
           <div className="mb-6">
-            <h3 className="text-lg font-semibold text-gray-900">Tracking: {trackingNumber}</h3>
+            <h3 className="text-lg font-semibold text-gray-900">Tracking: {trackingData.trackingNumber}</h3>
             <p className="text-sm text-gray-600 mt-1">
-              Estimated Delivery: January 30, 2024
+              Estimated Delivery: {trackingData.estimatedDelivery}
             </p>
           </div>
 
-          <div className="space-y-6">
-            {demoStatus.map((item, index) => (
-              <div key={index} className="flex items-start">
-                <div className={`flex-shrink-0 w-12 h-12 rounded-full flex items-center justify-center ${
-                  item.completed ? 'bg-green-100' : 'bg-gray-100'
-                }`}>
-                  <item.icon className={`w-6 h-6 ${item.completed ? 'text-green-600' : 'text-gray-400'}`} />
+          <div className="mb-6 p-4 bg-blue-50 rounded-lg">
+            <p className="font-semibold text-gray-900">Current Status</p>
+            <p className="text-blue-800 mt-1">{trackingData.status}</p>
+            <p className="text-sm text-gray-600 mt-1">Location: {trackingData.location}</p>
+          </div>
+
+          <h4 className="font-semibold text-gray-900 mb-4">Shipment History</h4>
+          <div className="space-y-4">
+            {trackingData.updates?.map((update, index) => (
+              <div key={index} className="flex items-start border-l-2 border-blue-600 pl-4 py-2">
+                <div className="flex-1">
+                  <p className="font-medium text-gray-900">{update.event}</p>
+                  <p className="text-sm text-gray-600 mt-1">{update.date}</p>
                 </div>
-                <div className="ml-4 flex-1">
-                  <p className={`font-semibold ${item.completed ? 'text-gray-900' : 'text-gray-500'}`}>
-                    {item.status}
-                  </p>
-                  <p className="text-sm text-gray-600 mt-1">{item.date}</p>
-                </div>
-                <div>
-                  {item.completed && (
-                    <span className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-xs font-semibold">
-                      Completed
-                    </span>
-                  )}
-                </div>
+                <CheckCircle className="w-5 h-5 text-green-600" />
               </div>
             ))}
           </div>
 
-          <div className="mt-8 p-4 bg-blue-50 rounded-lg">
-            <h4 className="font-semibold text-gray-900 mb-2">Shipment Details</h4>
-            <div className="grid grid-cols-2 gap-4 text-sm">
-              <div>
-                <p className="text-gray-600">Origin</p>
-                <p className="font-medium">Mumbai, India</p>
-              </div>
-              <div>
-                <p className="text-gray-600">Destination</p>
-                <p className="font-medium">New York, USA</p>
-              </div>
-              <div>
-                <p className="text-gray-600">Carrier</p>
-                <p className="font-medium">Global Shipping Inc.</p>
-              </div>
-              <div>
-                <p className="text-gray-600">Service Type</p>
-                <p className="font-medium">Ocean Freight</p>
-              </div>
+          {trackingData.message && (
+            <div className="mt-6 p-4 bg-gray-50 rounded-lg">
+              <p className="text-sm text-gray-700">{trackingData.message}</p>
             </div>
-          </div>
-
-          <p className="mt-4 text-sm text-gray-500 text-center">
-            Note: This is a demo. Real-time tracking will be available soon.
-          </p>
+          )}
         </div>
       )}
 
-      {!showResults && (
+      {!trackingData && !loading && !error && (
         <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-8 text-center">
           <Package className="w-16 h-16 text-blue-600 mx-auto mb-4" />
           <h3 className="text-xl font-semibold text-gray-900 mb-2">Enter a tracking number to get started</h3>
