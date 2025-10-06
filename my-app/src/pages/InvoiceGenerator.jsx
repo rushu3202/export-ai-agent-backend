@@ -1,5 +1,7 @@
 import { useState } from 'react';
-import { FileDown, Plus, Trash2 } from 'lucide-react';
+import { FileDown, Plus, Trash2, CheckCircle } from 'lucide-react';
+import { supabase } from '../supabaseClient';
+import axios from 'axios';
 
 export default function InvoiceGenerator() {
   const [sellerName, setSellerName] = useState('ACME Exporters');
@@ -10,6 +12,8 @@ export default function InvoiceGenerator() {
     { description: 'Wireless Mouse', qty: 5, unitPrice: 25 },
   ]);
   const [loading, setLoading] = useState(false);
+  const [successMessage, setSuccessMessage] = useState('');
+  const [error, setError] = useState('');
 
   const addItem = () => {
     setItems([...items, { description: '', qty: 1, unitPrice: 0 }]);
@@ -31,7 +35,20 @@ export default function InvoiceGenerator() {
 
   const generateInvoice = async () => {
     setLoading(true);
+    setSuccessMessage('');
+    setError('');
+    
     try {
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      
+      if (authError) throw authError;
+      
+      if (!user) {
+        setError('Please log in to generate invoices');
+        setLoading(false);
+        return;
+      }
+
       const response = await fetch('/generate-invoice', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -49,8 +66,24 @@ export default function InvoiceGenerator() {
       a.click();
       a.remove();
       window.URL.revokeObjectURL(url);
+
+      const totalAmount = parseFloat(calculateTotal());
+      
+      await axios.post('/api/save-invoice', {
+        userId: user.id,
+        sellerName,
+        buyerName,
+        currency,
+        totalAmount,
+        items,
+      });
+
+      setSuccessMessage('Invoice generated and saved successfully!');
+      
+      setTimeout(() => setSuccessMessage(''), 5000);
     } catch (error) {
-      alert('Error generating invoice: ' + error.message);
+      console.error('Error generating invoice:', error);
+      setError('Error generating invoice: ' + error.message);
     } finally {
       setLoading(false);
     }
@@ -64,6 +97,19 @@ export default function InvoiceGenerator() {
           Generate professional export invoices with automatic HS code assignment
         </p>
       </div>
+
+      {successMessage && (
+        <div className="mb-6 bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded-lg flex items-center">
+          <CheckCircle className="w-5 h-5 mr-2 flex-shrink-0" />
+          <span>{successMessage}</span>
+        </div>
+      )}
+      
+      {error && (
+        <div className="mb-6 bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-lg">
+          <span>{error}</span>
+        </div>
+      )}
 
       <div className="bg-white rounded-lg shadow-lg p-6">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">

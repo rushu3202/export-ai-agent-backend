@@ -1,15 +1,34 @@
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
-import { Home, FileText, ClipboardList, MessageSquare, Package, Menu, X, User } from 'lucide-react';
-import { useState } from 'react';
+import { Home, FileText, ClipboardList, MessageSquare, Package, Menu, X, User, LogOut } from 'lucide-react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { supabase } from '../supabaseClient';
 
 export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [user, setUser] = useState(null);
 
   const location = useLocation();
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    window.location.href = '/login';
+  };
   
   const navigation = [
-    { name: 'Dashboard', href: '/', icon: Home },
+    { name: 'Dashboard', href: '/dashboard', icon: Home },
     { name: 'Invoice Generator', href: '/invoice', icon: FileText },
     { name: 'Export Forms', href: '/export-forms', icon: ClipboardList },
     { name: 'AI Chat Assistant', href: '/chat', icon: MessageSquare },
@@ -59,6 +78,21 @@ export default function Layout() {
             </nav>
 
             <div className="p-4 border-t border-blue-500">
+              {user && (
+                <div className="mb-4">
+                  <div className="flex items-center gap-2 px-3 py-2 bg-blue-700 rounded-lg">
+                    <User className="w-4 h-4" />
+                    <span className="text-sm truncate flex-1">{user.email}</span>
+                  </div>
+                  <button
+                    onClick={handleLogout}
+                    className="w-full mt-2 flex items-center justify-center gap-2 px-3 py-2 bg-red-500 hover:bg-red-600 rounded-lg transition-colors text-sm"
+                  >
+                    <LogOut className="w-4 h-4" />
+                    Logout
+                  </button>
+                </div>
+              )}
               <p className="text-blue-200 text-xs text-center">
                 © 2025 Export AI Agent
               </p>

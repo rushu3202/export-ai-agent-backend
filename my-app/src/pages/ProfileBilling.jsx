@@ -1,8 +1,99 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { User, CreditCard, Check, Zap, Crown } from 'lucide-react';
+import { supabase } from '../supabaseClient';
+import axios from 'axios';
 
 export default function ProfileBilling() {
   const [currentPlan, setCurrentPlan] = useState('free');
+  const [userProfile, setUserProfile] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [processingCheckout, setProcessingCheckout] = useState(false);
+
+  useEffect(() => {
+    fetchUserProfile();
+  }, []);
+
+  const fetchUserProfile = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      
+      if (authError) throw authError;
+      
+      if (!user) {
+        setError('Please log in to view your profile');
+        setLoading(false);
+        return;
+      }
+
+      const response = await axios.get(`/api/user-profile?userId=${user.id}`);
+      
+      if (response.data) {
+        setUserProfile(response.data);
+        setCurrentPlan(response.data.subscription_status || 'free');
+      }
+    } catch (err) {
+      console.error('Error fetching user profile:', err);
+      setError('Failed to load profile');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUpgradeToPro = async () => {
+    try {
+      setProcessingCheckout(true);
+      
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      
+      if (authError) throw authError;
+      
+      if (!user) {
+        alert('Please log in to upgrade');
+        return;
+      }
+
+      const response = await axios.post('/api/create-checkout-session', {
+        userId: user.id,
+      });
+
+      if (response.data && response.data.url) {
+        window.location.href = response.data.url;
+      }
+    } catch (err) {
+      console.error('Error creating checkout session:', err);
+      alert('Failed to start checkout. Please try again.');
+    } finally {
+      setProcessingCheckout(false);
+    }
+  };
+
+  const handleManageBilling = async () => {
+    try {
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      
+      if (authError) throw authError;
+      
+      if (!user) {
+        alert('Please log in to manage billing');
+        return;
+      }
+
+      const response = await axios.post('/api/billing-portal', {
+        userId: user.id,
+      });
+
+      if (response.data && response.data.url) {
+        window.location.href = response.data.url;
+      }
+    } catch (err) {
+      console.error('Error opening billing portal:', err);
+      alert('Failed to open billing portal. Please try again.');
+    }
+  };
 
   const plans = [
     {
@@ -112,22 +203,26 @@ export default function ProfileBilling() {
               <p className="text-sm text-gray-600">Payment method</p>
             </div>
           </div>
-          <div className="text-sm">
+          <div className="text-sm mb-4">
             {currentPlan === 'free' ? (
               <p className="text-gray-600">No payment method required</p>
             ) : (
               <div className="space-y-2">
                 <div className="flex justify-between">
-                  <span className="text-gray-600">Card:</span>
-                  <span className="font-medium">**** 4242</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Next billing:</span>
-                  <span className="font-medium">Feb 1, 2025</span>
+                  <span className="text-gray-600">Status:</span>
+                  <span className="font-medium text-green-600">Active</span>
                 </div>
               </div>
             )}
           </div>
+          {userProfile && userProfile.stripe_customer_id && (
+            <button
+              onClick={handleManageBilling}
+              className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-semibold"
+            >
+              Manage Billing
+            </button>
+          )}
         </div>
       </div>
 
@@ -172,16 +267,21 @@ export default function ProfileBilling() {
               </ul>
 
               <button
-                disabled={currentPlan === plan.id}
+                onClick={() => plan.id === 'pro' && currentPlan !== 'pro' && handleUpgradeToPro()}
+                disabled={currentPlan === plan.id || processingCheckout}
                 className={`w-full py-3 px-6 rounded-lg font-semibold transition-colors ${
-                  currentPlan === plan.id
+                  currentPlan === plan.id || processingCheckout
                     ? 'bg-gray-300 text-gray-600 cursor-not-allowed'
                     : plan.popular
                     ? 'bg-blue-600 text-white hover:bg-blue-700'
                     : 'bg-gray-100 text-gray-900 hover:bg-gray-200'
                 }`}
               >
-                {currentPlan === plan.id ? plan.buttonText : plan.buttonText}
+                {processingCheckout && plan.id === 'pro' && currentPlan !== 'pro'
+                  ? 'Processing...'
+                  : currentPlan === plan.id
+                  ? plan.buttonText
+                  : plan.buttonText}
               </button>
 
               {plan.id === 'pro' && currentPlan === 'free' && (

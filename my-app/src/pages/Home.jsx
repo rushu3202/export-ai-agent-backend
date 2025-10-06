@@ -1,7 +1,54 @@
+import { useState, useEffect } from 'react';
 import { FileText, ClipboardList, MessageSquare, Package, TrendingUp, Clock } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { supabase } from '../supabaseClient';
+import axios from 'axios';
 
 export default function Home() {
+  const [stats, setStats] = useState([
+    { name: 'Invoices Generated', value: '0', icon: FileText },
+    { name: 'Forms Completed', value: '0', icon: ClipboardList },
+    { name: 'AI Queries', value: '0', icon: MessageSquare },
+  ]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    fetchUserStats();
+  }, []);
+
+  const fetchUserStats = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      
+      if (authError) throw authError;
+      
+      if (!user) {
+        setError('Please log in to view your stats');
+        setLoading(false);
+        return;
+      }
+
+      const response = await axios.get(`/api/user-stats?userId=${user.id}`);
+      
+      if (response.data) {
+        setStats([
+          { name: 'Invoices Generated', value: response.data.invoices_count.toString(), icon: FileText },
+          { name: 'Forms Completed', value: response.data.forms_count.toString(), icon: ClipboardList },
+          { name: 'AI Queries', value: response.data.ai_queries_count.toString(), icon: MessageSquare },
+        ]);
+      }
+    } catch (err) {
+      console.error('Error fetching user stats:', err);
+      setError('Failed to load stats');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const features = [
     {
       name: 'Invoice Generator',
@@ -33,12 +80,6 @@ export default function Home() {
     },
   ];
 
-  const stats = [
-    { name: 'Invoices Generated', value: '0', icon: FileText },
-    { name: 'Forms Completed', value: '0', icon: ClipboardList },
-    { name: 'AI Queries', value: '0', icon: MessageSquare },
-  ];
-
   return (
     <div className="max-w-7xl mx-auto">
       <div className="mb-8">
@@ -49,19 +90,29 @@ export default function Home() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-        {stats.map((stat) => (
-          <div key={stat.name} className="bg-white rounded-lg shadow p-6">
-            <div className="flex items-center">
-              <div className="flex-shrink-0">
-                <stat.icon className="h-8 w-8 text-blue-600" />
-              </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-500">{stat.name}</p>
-                <p className="text-2xl font-semibold text-gray-900">{stat.value}</p>
+        {loading ? (
+          <div className="col-span-3 text-center py-8">
+            <p className="text-gray-600">Loading stats...</p>
+          </div>
+        ) : error ? (
+          <div className="col-span-3 text-center py-8">
+            <p className="text-red-600">{error}</p>
+          </div>
+        ) : (
+          stats.map((stat) => (
+            <div key={stat.name} className="bg-white rounded-lg shadow p-6">
+              <div className="flex items-center">
+                <div className="flex-shrink-0">
+                  <stat.icon className="h-8 w-8 text-blue-600" />
+                </div>
+                <div className="ml-4">
+                  <p className="text-sm font-medium text-gray-500">{stat.name}</p>
+                  <p className="text-2xl font-semibold text-gray-900">{stat.value}</p>
+                </div>
               </div>
             </div>
-          </div>
-        ))}
+          ))
+        )}
       </div>
 
       <div className="mb-8">

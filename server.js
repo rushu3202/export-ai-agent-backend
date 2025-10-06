@@ -1,37 +1,30 @@
-// server.js
-import express from "express";
-import PDFDocument from "pdfkit";
-import path from "path";
-import fs from "fs";
-import OpenAI from "openai";
-import { fileURLToPath } from "url";
+import express from 'express';
+import cors from 'cors';
+import bodyParser from 'body-parser';
+import Stripe from 'stripe';
+import { createClient } from '@supabase/supabase-js';
+import OpenAI from 'openai';
+import PDFDocument from 'pdfkit';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-app.use(express.json({ limit: "1mb" }));
-app.use(express.urlencoded({ extended: true }));
+const PORT = process.env.PORT || 5000;
 
-// Serve static assets (logo, etc.)
-app.use("/public", express.static(path.join(__dirname, "public")));
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_ANON_KEY
+);
 
-// Serve React production build files from /dist
-const distFolder = path.join(__dirname, "dist");
-if (fs.existsSync(distFolder)) {
-  app.use(express.static(distFolder));
-}
+const openai = process.env.OPENAI_API_KEY
+  ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+  : null;
 
-// OpenAI client (optional)
-let openai = null;
-if (process.env.OPENAI_API_KEY) {
-  openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  console.log("OpenAI client configured.");
-} else {
-  console.log("OpenAI API key not found - HS code lookups will use fallback.");
-}
-
-// Utility: currency symbol map
 const currencySymbols = {
   USD: "$",
   GBP: "£",
@@ -40,7 +33,6 @@ const currencySymbols = {
   JPY: "¥",
 };
 
-// Generate invoice number
 function generateInvoiceNumber() {
   const now = new Date();
   return (
@@ -53,7 +45,186 @@ function generateInvoiceNumber() {
   );
 }
 
-// Safe HS-code fetch (tries OpenAI if available, else returns fallback)
+app.use(cors());
+app.use(bodyParser.json());
+app.use('/public', express.static(path.join(__dirname, 'public')));
+
+const distFolder = path.join(__dirname, 'dist');
+if (fs.existsSync(distFolder)) {
+  app.use(express.static(distFolder));
+}
+
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    services: {
+      stripe: !!process.env.STRIPE_SECRET_KEY,
+      supabase: !!process.env.SUPABASE_URL,
+      openai: !!process.env.OPENAI_API_KEY
+    }
+  });
+});
+
+app.post('/api/create-checkout-session', async (req, res) => {
+  try {
+    const { userEmail, userId } = req.body;
+    
+    const session = await stripe.checkout.sessions.create({
+      mode: 'subscription',
+      payment_method_types: ['card'],
+      line_items: [
+        {
+          price_data: {
+            currency: 'gbp',
+            product_data: {
+              name: 'Export AI Agent Pro',
+              description: 'Unlimited invoices, all export forms, advanced AI assistance',
+            },
+            unit_amount: 999,
+            recurring: {
+              interval: 'month',
+            },
+          },
+          quantity: 1,
+        },
+      ],
+      customer_email: userEmail,
+      client_reference_id: userId,
+      success_url: `${process.env.FRONTEND_URL || req.headers.origin}/profile?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${process.env.FRONTEND_URL || req.headers.origin}/profile`,
+      metadata: {
+        userId: userId
+      }
+    });
+
+    res.json({ url: session.url });
+  } catch (error) {
+    console.error('Checkout error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/webhook', bodyParser.raw({ type: 'application/json' }), async (req, res) => {
+  const sig = req.headers['stripe-signature'];
+  let event;
+
+  try {
+    event = stripe.webhooks.constructEvent(
+      req.body,
+      sig,
+      process.env.STRIPE_WEBHOOK_SECRET
+    );
+  } catch (err) {
+    console.error('Webhook signature verification failed:', err.message);
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+
+  if (event.type === 'checkout.session.completed') {
+    const session = event.data.object;
+    const userId = session.metadata.userId;
+    
+    await supabase
+      .from('user_profiles')
+      .update({
+        stripe_customer_id: session.customer,
+        subscription_status: 'pro',
+        subscription_id: session.subscription
+      })
+      .eq('id', userId);
+  }
+
+  if (event.type === 'customer.subscription.deleted') {
+    const subscription = event.data.object;
+    
+    await supabase
+      .from('user_profiles')
+      .update({ subscription_status: 'free' })
+      .eq('subscription_id', subscription.id);
+  }
+
+  res.json({ received: true });
+});
+
+app.get('/api/billing-portal', async (req, res) => {
+  try {
+    const { customerId } = req.query;
+    
+    const session = await stripe.billingPortal.sessions.create({
+      customer: customerId,
+      return_url: `${process.env.FRONTEND_URL || req.headers.origin}/profile`,
+    });
+
+    res.json({ url: session.url });
+  } catch (error) {
+    console.error('Billing portal error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/save-invoice', async (req, res) => {
+  try {
+    const { userId, sellerName, buyerName, currency, totalAmount, items } = req.body;
+    
+    const { data, error } = await supabase
+      .from('invoices')
+      .insert({
+        user_id: userId,
+        seller_name: sellerName,
+        buyer_name: buyerName,
+        currency,
+        total_amount: totalAmount,
+        items
+      })
+      .select();
+
+    if (error) throw error;
+    res.json({ success: true, invoice: data[0] });
+  } catch (error) {
+    console.error('Save invoice error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/user-stats', async (req, res) => {
+  try {
+    const { userId } = req.query;
+    
+    const [invoices, forms, queries] = await Promise.all([
+      supabase.from('invoices').select('*', { count: 'exact' }).eq('user_id', userId),
+      supabase.from('export_forms').select('*', { count: 'exact' }).eq('user_id', userId),
+      supabase.from('chat_history').select('*', { count: 'exact' }).eq('user_id', userId)
+    ]);
+
+    res.json({
+      invoices: invoices.count || 0,
+      forms: forms.count || 0,
+      aiQueries: queries.count || 0
+    });
+  } catch (error) {
+    console.error('User stats error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/user-profile', async (req, res) => {
+  try {
+    const { userId } = req.query;
+    
+    const { data, error } = await supabase
+      .from('user_profiles')
+      .select('*')
+      .eq('id', userId)
+      .single();
+
+    if (error) throw error;
+    res.json(data);
+  } catch (error) {
+    console.error('User profile error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 async function getHSCode(description) {
   if (!openai) return "000000";
   try {
@@ -64,7 +235,6 @@ async function getHSCode(description) {
       max_tokens: 20,
     });
     const text = (resp?.choices?.[0]?.message?.content || "").trim();
-    // extract first 6-digit sequence
     const match = text.match(/\d{6}/);
     return match ? match[0] : text.slice(0, 6).padEnd(6, "0");
   } catch (err) {
@@ -73,8 +243,7 @@ async function getHSCode(description) {
   }
 }
 
-// POST /generate-invoice
-app.post("/generate-invoice", async (req, res) => {
+app.post('/generate-invoice', async (req, res) => {
   try {
     const payload = req.body || {};
     let { sellerName, buyerName, items, currency } = payload;
@@ -82,7 +251,6 @@ app.post("/generate-invoice", async (req, res) => {
     currency = (currency || "USD").toString().toUpperCase();
     const symbol = currencySymbols[currency] || currency + " ";
 
-    // items must be array
     if (typeof items === "string") {
       try {
         items = JSON.parse(items);
@@ -92,26 +260,20 @@ app.post("/generate-invoice", async (req, res) => {
     }
     items = Array.isArray(items) ? items : [];
 
-    // ensure required fields
     sellerName = sellerName || "Seller";
     buyerName = buyerName || "Buyer";
 
-    // enrich with HS codes (sequential to avoid parallel throttling)
     for (let i = 0; i < items.length; i++) {
       const it = items[i];
       if (!it) continue;
       if (!it.description) it.description = "Item " + (i + 1);
-      // only attempt HS if not provided
       if (!it.hsCode || it.hsCode === "N/A") {
-        // optional OpenAI lookup
         it.hsCode = await getHSCode(it.description);
       }
     }
 
-    // Create PDF
     const doc = new PDFDocument({ margin: 50, size: "A4" });
 
-    // Set response headers before piping
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader(
       "Content-Disposition",
@@ -120,7 +282,6 @@ app.post("/generate-invoice", async (req, res) => {
 
     doc.pipe(res);
 
-    // Header: logo + title + invoice meta
     const logoPath = path.join(__dirname, "public", "logo.png");
     if (fs.existsSync(logoPath)) {
       try {
@@ -131,7 +292,6 @@ app.post("/generate-invoice", async (req, res) => {
     }
     doc.fontSize(20).text("COMMERCIAL INVOICE", { align: "center" });
 
-    // invoice number & date top-right
     const invoiceNo = generateInvoiceNumber();
     const invoiceDate = new Date().toLocaleDateString("en-GB");
     doc.fontSize(10).text(`Invoice No: ${invoiceNo}`, 420, 50, { align: "left" });
@@ -139,7 +299,6 @@ app.post("/generate-invoice", async (req, res) => {
 
     doc.moveDown(3);
 
-    // Seller & Buyer blocks
     doc.fontSize(11).fillColor("black");
     const leftX = 50;
     const midX = 300;
@@ -150,7 +309,6 @@ app.post("/generate-invoice", async (req, res) => {
     doc.font("Helvetica-Bold").text(buyerName);
     doc.moveDown();
 
-    // Table header
     const tableTop = doc.y + 10;
     doc.fontSize(11).font("Helvetica-Bold");
     doc.text("No", 50, tableTop);
@@ -162,7 +320,6 @@ app.post("/generate-invoice", async (req, res) => {
 
     doc.moveTo(50, tableTop + 15).lineTo(560, tableTop + 15).stroke();
 
-    // Items rows
     doc.font("Helvetica").fontSize(10);
     let position = tableTop + 25;
     let grandTotal = 0;
@@ -181,18 +338,15 @@ app.post("/generate-invoice", async (req, res) => {
       doc.text(String(it.hsCode || "N/A"), 540, position, { width: 70, align: "right" });
 
       position += 20;
-      // new page if nearing bottom
       if (position > 720) {
         doc.addPage();
         position = 50;
       }
     }
 
-    // Totals
     doc.moveTo(350, position + 5).lineTo(560, position + 5).stroke();
     doc.fontSize(12).font("Helvetica-Bold").text(`Grand Total: ${symbol}${grandTotal.toFixed(2)}`, 350, position + 15, { align: "right" });
 
-    // Signature & stamp placeholders
     doc.moveDown(6);
     const sigY = doc.y + 20;
     doc.fontSize(11).font("Helvetica").text("Authorized Signature:", 50, sigY + 20);
@@ -201,7 +355,6 @@ app.post("/generate-invoice", async (req, res) => {
     doc.rect(400, sigY + 10, 120, 80).stroke();
     doc.fontSize(10).text("Company Stamp", 410, sigY + 50);
 
-    // Footer
     doc.moveDown(6);
     doc.fontSize(9).fillColor("gray").text("Generated by Export AI Agent", { align: "center" });
 
@@ -212,18 +365,110 @@ app.post("/generate-invoice", async (req, res) => {
   }
 });
 
-// Route for root - serve React index if exists
-app.get("/", (req, res) => {
-  const indexPath = path.join(distFolder, "index.html");
-  if (fs.existsSync(indexPath)) {
-    res.sendFile(indexPath);
-  } else {
-    res.send("Export AI Agent backend is running. Build your frontend into /dist and place logo at /public/logo.png");
+app.post('/chat', async (req, res) => {
+  try {
+    const { message, history = [] } = req.body;
+
+    if (!openai) {
+      return res.json({
+        response: "I'm here to help with export procedures! (Note: AI is currently unavailable, but I can provide general guidance on HS codes, customs compliance, shipping documentation, and international trade regulations.)"
+      });
+    }
+
+    const messages = [
+      {
+        role: 'system',
+        content: 'You are an expert export documentation advisor. Help users with export procedures, HS code classification, customs compliance, shipping logistics, and international trade regulations. Be concise and practical.'
+      },
+      ...history.map(msg => ({
+        role: msg.role,
+        content: msg.content
+      })),
+      {
+        role: 'user',
+        content: message
+      }
+    ];
+
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages,
+      temperature: 0.7,
+      max_tokens: 500
+    });
+
+    res.json({ response: completion.choices[0].message.content });
+  } catch (error) {
+    console.error('Chat error:', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
-// Start server
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(`Server running on port ${PORT}`);
+app.post('/export-forms', async (req, res) => {
+  try {
+    const { action, formType, formData } = req.body;
+
+    if (action === 'suggest' && openai) {
+      const completion = await openai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages: [
+          {
+            role: 'system',
+            content: `You are an export documentation expert. Help users fill out ${formType} forms with accurate information based on their input.`
+          },
+          {
+            role: 'user',
+            content: `I'm filling out a ${formType}. Here's my current data: ${JSON.stringify(formData)}. What should I include or improve?`
+          }
+        ],
+        temperature: 0.5
+      });
+
+      return res.json({ suggestion: completion.choices[0].message.content });
+    }
+
+    res.json({ suggestion: 'Please provide complete information for all required fields.' });
+  } catch (error) {
+    console.error('Export forms error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/track', async (req, res) => {
+  try {
+    const { trackingNumber, carrier } = req.body;
+
+    const mockStatus = {
+      trackingNumber,
+      carrier: carrier || 'DHL Express',
+      status: 'In Transit',
+      location: 'Dubai, UAE',
+      estimatedDelivery: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toLocaleDateString(),
+      updates: [
+        { date: new Date().toLocaleDateString(), status: 'Package in transit', location: 'Dubai, UAE' },
+        { date: new Date(Date.now() - 24 * 60 * 60 * 1000).toLocaleDateString(), status: 'Customs cleared', location: 'Mumbai, India' },
+        { date: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toLocaleDateString(), status: 'Picked up', location: 'Mumbai, India' }
+      ]
+    };
+
+    res.json(mockStatus);
+  } catch (error) {
+    console.error('Tracking error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.use((req, res, next) => {
+  if (req.method === 'GET' && !req.path.startsWith('/api') && !req.path.includes('.')) {
+    res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+  } else {
+    next();
+  }
+});
+
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`✅ Server running on port ${PORT}`);
+  console.log(`🔐 Stripe: ${process.env.STRIPE_SECRET_KEY ? 'Configured' : 'Missing'}`);
+  console.log(`🗄️  Supabase: ${process.env.SUPABASE_URL ? 'Configured' : 'Missing'}`);
+  console.log(`🤖 OpenAI: ${process.env.OPENAI_API_KEY ? 'Configured' : 'Missing'}`);
 });
