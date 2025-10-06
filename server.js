@@ -15,6 +15,20 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+const getFrontendUrl = () => {
+  if (process.env.FRONTEND_URL) {
+    return process.env.FRONTEND_URL;
+  }
+  const replitDomain = process.env.REPLIT_DEV_DOMAIN || process.env.REPLIT_DOMAINS;
+  if (replitDomain) {
+    const domain = replitDomain.split(',')[0];
+    return `https://${domain}`;
+  }
+  return 'http://localhost:5000';
+};
+
+const FRONTEND_URL = getFrontendUrl();
+
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -89,6 +103,12 @@ app.post('/api/webhook', bodyParser.raw({ type: 'application/json' }), async (re
 });
 
 app.use(bodyParser.json());
+
+app.use((req, res, next) => {
+  console.log(`${req.method} ${req.path}`);
+  next();
+});
+
 app.use('/public', express.static(path.join(__dirname, 'public')));
 
 const distFolder = path.join(__dirname, 'dist');
@@ -133,8 +153,8 @@ app.post('/api/create-checkout-session', async (req, res) => {
       ],
       customer_email: userEmail,
       client_reference_id: userId,
-      success_url: `${process.env.FRONTEND_URL || req.headers.origin}/profile?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${process.env.FRONTEND_URL || req.headers.origin}/profile`,
+      success_url: `${FRONTEND_URL}/profile?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${FRONTEND_URL}/profile`,
       metadata: {
         userId: userId
       }
@@ -153,7 +173,7 @@ app.get('/api/billing-portal', async (req, res) => {
     
     const session = await stripe.billingPortal.sessions.create({
       customer: customerId,
-      return_url: `${process.env.FRONTEND_URL || req.headers.origin}/profile`,
+      return_url: `${FRONTEND_URL}/profile`,
     });
 
     res.json({ url: session.url });
@@ -469,6 +489,7 @@ app.use((req, res, next) => {
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`✅ Server running on port ${PORT}`);
+  console.log(`🌐 Frontend URL: ${FRONTEND_URL}`);
   console.log(`🔐 Stripe: ${process.env.STRIPE_SECRET_KEY ? 'Configured' : 'Missing'}`);
   console.log(`🗄️  Supabase: ${process.env.SUPABASE_URL ? 'Configured' : 'Missing'}`);
   console.log(`🤖 OpenAI: ${process.env.OPENAI_API_KEY ? 'Configured' : 'Missing'}`);
