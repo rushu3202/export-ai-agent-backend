@@ -1,0 +1,234 @@
+FULL PROMPT FOR REPLIT AGENT
+
+TASK:
+Make my app look fully professional and visually appealing for real exporters and small business users.
+Keep all existing functionality (login, signup, profile, billing, Stripe checkout, Supabase, etc.) intact.
+Focus on frontend design, branding, and layout polish using a clean SaaS look.
+
+🎯 DESIGN GOAL:
+Transform the UI into a sleek, modern SaaS dashboard — similar to Stripe, Linear, or Notion.
+The app should look like a real commercial product people would pay to use.
+
+🖌️ BRANDING DETAILS (IMPORTANT)
+
+App Name: ExportAgent
+Tagline: “Smart AI Platform for Exporters”
+Logo Design:
+
+Simple icon of a globe with an upward arrow or export box (use Lucide or HeroIcon).
+
+Next to the logo, show text “ExportAgent” in bold.
+
+Example: 🌍 ExportAgent
+
+Color Palette:
+
+Primary: #1D4ED8 (Navy Blue)
+
+Secondary: #60A5FA (Light Blue Accent)
+
+Background: #F9FAFB (Light Gray / White)
+
+Text Primary: #111827 (Dark Charcoal)
+
+Text Secondary: #4B5563 (Medium Gray)
+
+Buttons: Gradient from #2563EB → #60A5FA
+
+Success Green: #10B981
+
+Error Red: #EF4444
+
+Typography:
+
+Use Inter or Poppins font family
+
+Headings: Bold and clean
+
+Body: Comfortable spacing, medium font weight
+
+🌐 LAYOUT & PAGE IMPROVEMENTS
+
+1. Landing Page (Home)
+
+Add a hero section with large bold text:
+“Simplify Your Export Documents & Invoices with ExportAgent.”
+
+Subtext: “Generate export invoices, assign HS codes, and manage billing automatically — all powered by AI.”
+
+Buttons:
+
+Get Started → takes user to Signup/Login
+
+View Pricing → scrolls to pricing section
+
+Add 3 feature cards with icons:
+
+“AI-Powered Document Generator”
+
+“Instant Invoice Creation”
+
+“Secure Cloud Storage”
+
+Add a clean footer with links:
+
+About | Pricing | Contact | Terms
+
+“© 2025 ExportAgent. All rights reserved.”
+
+2. Navbar (Global Header)
+
+Show logo “🌍 ExportAgent” on left
+
+Links: Home | Dashboard | Pricing | Profile | Login/Logout
+
+Right side: “Upgrade to Pro” button if user is on Free plan
+
+Responsive (hamburger menu for mobile)
+
+3. Dashboard
+
+Add cards for each main action:
+
+Generate Invoice
+
+Manage Forms
+
+AI Assistant
+
+Show plan status at top-right (Free / Pro)
+
+For Free users, display a subtle banner:
+“You’re on the Free Plan — Upgrade to unlock unlimited invoices.”
+Button → “Upgrade Now” (Stripe checkout)
+
+4. Pricing Page
+
+Display two plan cards side by side:
+
+Free Plan (£0/month)
+
+Up to 3 invoices/month
+
+Basic forms
+
+Email support
+
+Disabled “Upgrade” button (greyed out, says “Current Plan”)
+
+Pro Plan (£9.99/month)
+
+Unlimited invoices
+
+AI-powered HS code detection
+
+Duty & freight estimation
+
+Priority support
+
+“Upgrade Now” button (goes to /api/create-checkout-session)
+
+Add a short note below:
+“Start your 7-day free trial • Cancel anytime.”
+
+5. Success / Cancel Pages
+
+/success:
+
+Big green checkmark ✅
+
+Message: “Payment Successful! Welcome to ExportAgent Pro.”
+
+Button → “Go to Dashboard”
+
+/cancel:
+
+Red cross ❌
+
+Message: “Payment Cancelled — You can try again anytime.”
+
+Button → “Back to Pricing”
+
+6. Profile Page
+
+Card layout showing:
+
+User name & email
+
+Member since date
+
+Current Plan (Free/Pro badge)
+
+Subscription renewal info
+
+Add “Update Payment Method” and “Upgrade to Pro” buttons
+
+Use icons for user details (e.g., Lucide icons)
+
+7. Overall UI Polish
+
+Use soft shadows, rounded-2xl corners
+
+Smooth hover transitions for all buttons
+
+Responsive grid-based layout
+
+Consistent spacing and padding
+
+Include a subtle gradient background for hero sections
+
+Ensure light/dark contrast is accessible
+
+8. Favicon & Metadata
+
+Favicon: small globe or export-box icon
+
+<title>: ExportAgent – Smart Export Management Tool
+
+<meta name="description">: Automate invoices, export forms, and payments with AI.
+
+🧩 DO NOT CHANGE OR BREAK
+
+Existing backend logic (server.js)
+
+Stripe checkout endpoints
+
+Supabase auth & database
+
+All .env variables and secrets
+
+Payment and profile connection flow
+
+🧠 STYLE REFERENCES
+
+https://stripe.com
+
+https://linear.app
+
+https://notion.so
+
+Use Tailwind CSS with Lucide Icons and Framer Motion for animation.
+
+✅ FINAL RESULT EXPECTATION
+
+Fully working, professional SaaS UI
+
+Modern homepage, clean dashboard, working checkout
+
+Mobile responsive
+
+Consistent colors, fonts, and branding
+
+Stripe checkout and Supabase login still working
+
+After completing the redesign:
+
+Redeploy the app
+
+Ensure the live site: https://export-agent-invoice-rspats2739.replit.app
+
+looks professional and everything functions smoothly.
+
+Optional (if possible):
+Add a small notification banner on top of dashboard for new users:
+“🎉 Welcome to ExportAgent — Generate your first export invoice today!”
