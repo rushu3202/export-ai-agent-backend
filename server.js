@@ -19,6 +19,11 @@ const getFrontendUrl = () => {
   if (process.env.FRONTEND_URL) {
     return process.env.FRONTEND_URL;
   }
+  
+  if (process.env.REPLIT_DEPLOYMENT === '1') {
+    return 'https://export-agent-invoice-rspats2739.replit.app';
+  }
+  
   const replitDomain = process.env.REPLIT_DEV_DOMAIN || process.env.REPLIT_DOMAINS;
   if (replitDomain) {
     const domain = replitDomain.split(',')[0];
@@ -59,7 +64,15 @@ function generateInvoiceNumber() {
   );
 }
 
-app.use(cors());
+app.use(cors({
+  origin: [
+    'https://export-agent-invoice-rspats2739.replit.app',
+    'https://0d33b273-78dc-4d46-81b1-a5d306c354e4-00-2wyc61srg18ak.janeway.replit.dev',
+    /\.replit\.dev$/,
+    /\.replit\.app$/
+  ],
+  credentials: true
+}));
 
 app.post('/api/webhook', bodyParser.raw({ type: 'application/json' }), async (req, res) => {
   const sig = req.headers['stripe-signature'];
@@ -105,7 +118,8 @@ app.post('/api/webhook', bodyParser.raw({ type: 'application/json' }), async (re
 app.use(bodyParser.json());
 
 app.use((req, res, next) => {
-  console.log(`${req.method} ${req.path}`);
+  const timestamp = new Date().toISOString();
+  console.log(`[${timestamp}] ${req.method} ${req.path} - Origin: ${req.headers.origin || 'none'}`);
   next();
 });
 
@@ -131,6 +145,8 @@ app.get('/health', (req, res) => {
 app.post('/api/create-checkout-session', async (req, res) => {
   try {
     const { userEmail, userId } = req.body;
+    console.log(`[Checkout] Creating session for user: ${userId}, email: ${userEmail}`);
+    console.log(`[Checkout] Frontend URL: ${FRONTEND_URL}`);
     
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
@@ -160,9 +176,10 @@ app.post('/api/create-checkout-session', async (req, res) => {
       }
     });
 
+    console.log(`[Checkout] Session created: ${session.id}`);
     res.json({ url: session.url });
   } catch (error) {
-    console.error('Checkout error:', error);
+    console.error('[Checkout] Error:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
@@ -170,15 +187,18 @@ app.post('/api/create-checkout-session', async (req, res) => {
 app.get('/api/billing-portal', async (req, res) => {
   try {
     const { customerId } = req.query;
+    console.log(`[Billing Portal] Creating session for customer: ${customerId}`);
+    console.log(`[Billing Portal] Return URL: ${FRONTEND_URL}/profile`);
     
     const session = await stripe.billingPortal.sessions.create({
       customer: customerId,
       return_url: `${FRONTEND_URL}/profile`,
     });
 
+    console.log(`[Billing Portal] Session created successfully`);
     res.json({ url: session.url });
   } catch (error) {
-    console.error('Billing portal error:', error);
+    console.error('[Billing Portal] Error:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
@@ -186,6 +206,7 @@ app.get('/api/billing-portal', async (req, res) => {
 app.post('/api/save-invoice', async (req, res) => {
   try {
     const { userId, sellerName, buyerName, currency, totalAmount, items } = req.body;
+    console.log(`[Save Invoice] Saving invoice for user: ${userId}`);
     
     const { data, error } = await supabase
       .from('invoices')
@@ -199,10 +220,15 @@ app.post('/api/save-invoice', async (req, res) => {
       })
       .select();
 
-    if (error) throw error;
+    if (error) {
+      console.error('[Save Invoice] Supabase error:', error);
+      throw error;
+    }
+    
+    console.log(`[Save Invoice] Invoice saved successfully`);
     res.json({ success: true, invoice: data[0] });
   } catch (error) {
-    console.error('Save invoice error:', error);
+    console.error('[Save Invoice] Error:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
@@ -210,6 +236,7 @@ app.post('/api/save-invoice', async (req, res) => {
 app.get('/api/user-stats', async (req, res) => {
   try {
     const { userId } = req.query;
+    console.log(`[User Stats] Fetching stats for user: ${userId}`);
     
     const [invoices, forms, queries] = await Promise.all([
       supabase.from('invoices').select('*', { count: 'exact' }).eq('user_id', userId),
@@ -217,13 +244,20 @@ app.get('/api/user-stats', async (req, res) => {
       supabase.from('chat_history').select('*', { count: 'exact' }).eq('user_id', userId)
     ]);
 
-    res.json({
+    if (invoices.error) console.error('[User Stats] Invoices error:', invoices.error);
+    if (forms.error) console.error('[User Stats] Forms error:', forms.error);
+    if (queries.error) console.error('[User Stats] Queries error:', queries.error);
+
+    const stats = {
       invoices_count: invoices.count || 0,
       forms_count: forms.count || 0,
       ai_queries_count: queries.count || 0
-    });
+    };
+    
+    console.log(`[User Stats] Returning:`, stats);
+    res.json(stats);
   } catch (error) {
-    console.error('User stats error:', error);
+    console.error('[User Stats] Error:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
@@ -231,6 +265,7 @@ app.get('/api/user-stats', async (req, res) => {
 app.get('/api/user-profile', async (req, res) => {
   try {
     const { userId } = req.query;
+    console.log(`[User Profile] Fetching profile for user: ${userId}`);
     
     const { data, error } = await supabase
       .from('user_profiles')
@@ -238,10 +273,15 @@ app.get('/api/user-profile', async (req, res) => {
       .eq('id', userId)
       .single();
 
-    if (error) throw error;
+    if (error) {
+      console.error('[User Profile] Supabase error:', error);
+      throw error;
+    }
+    
+    console.log(`[User Profile] Found profile:`, data ? 'Yes' : 'No');
     res.json(data);
   } catch (error) {
-    console.error('User profile error:', error);
+    console.error('[User Profile] Error:', error.message);
     res.status(500).json({ error: error.message });
   }
 });

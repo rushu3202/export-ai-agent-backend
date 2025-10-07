@@ -1,0 +1,66 @@
+Fix all backend and API connection issues so the Export AI Agent app works 100% correctly.
+
+🎯 GOAL:
+Make the live app fully functional at:
+https://export-agent-invoice-rspats2739.replit.app
+
+✅ TASKS TO FIX:
+1. **Backend Routing**
+   - Ensure all API routes exist and are working:
+     - GET /api/user-stats
+     - POST /api/checkout
+     - POST /api/manage-billing
+     - POST /api/webhook
+   - These routes must be handled by the Express server.
+
+2. **Frontend Connection**
+   - The frontend should call these APIs **relative to the same domain** (no localhost).
+   - Example: fetch("/api/user-stats") instead of "http://localhost:5000/api/user-stats".
+
+3. **Supabase Configuration**
+   - Initialize Supabase client using:
+     SUPABASE_URL=https://pmbdnxsmkrqiznppipmg.supabase.co
+     SUPABASE_KEY=[your anon key]
+   - Ensure backend uses service role key if needed.
+   - Ensure Supabase functions correctly for user authentication and stats.
+
+4. **Stripe Integration**
+   - Add valid environment variables:
+     STRIPE_SECRET_KEY=[your secret key]
+     VITE_STRIPE_PUBLISHABLE_KEY=[your publishable key]
+   - Backend must handle checkout with `stripe.checkout.sessions.create()` and redirect URLs pointing to:
+     success_url: https://export-agent-invoice-rspats2739.replit.app/success
+     cancel_url: https://export-agent-invoice-rspats2739.replit.app/cancel
+   - Manage Billing endpoint should use:
+     `stripe.billingPortal.sessions.create()` with correct return URL.
+
+5. **CORS & HTTPS**
+   - Enable CORS for the domain:
+     https://export-agent-invoice-rspats2739.replit.app
+   - Remove all localhost references.
+   - Ensure backend listens on process.env.PORT or 5000.
+
+6. **Frontend Buttons**
+   - Make “Upgrade to Pro” button trigger the correct API POST /api/checkout call.
+   - Make “Manage Billing” button trigger POST /api/manage-billing.
+   - Add `onClick` handlers if missing.
+
+7. **Serve React App**
+   - Confirm backend serves frontend build from `/dist` folder.
+   - For any unknown route (like /dashboard or /profile), return index.html.
+
+8. **Logging**
+   - Add console logs to print:
+     - Which endpoint is being called
+     - Any errors from Stripe or Supabase
+
+9. **Test Flow**
+   - Dashboard loads without “Failed to load stats”
+   - Login/Signup works via Supabase
+   - Stripe checkout redirects to test payment
+   - Billing portal opens correctly
+   - Data updates in Supabase
+
+🧩 Final Step
+Restart the server, rebuild frontend if needed, and confirm everything works from:
+https://export-agent-invoice-rspats2739.replit.app
