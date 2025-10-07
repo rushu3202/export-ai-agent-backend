@@ -6,15 +6,17 @@ import axios from 'axios';
 export default function ProfileBilling() {
   const [currentPlan, setCurrentPlan] = useState('free');
   const [userProfile, setUserProfile] = useState(null);
+  const [currentUser, setCurrentUser] = useState(null);
+  const [userStats, setUserStats] = useState({ invoices_count: 0, forms_count: 0, ai_queries_count: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [processingCheckout, setProcessingCheckout] = useState(false);
 
   useEffect(() => {
-    fetchUserProfile();
+    fetchUserData();
   }, []);
 
-  const fetchUserProfile = async () => {
+  const fetchUserData = async () => {
     try {
       setLoading(true);
       setError(null);
@@ -29,14 +31,23 @@ export default function ProfileBilling() {
         return;
       }
 
-      const response = await axios.get(`/api/user-profile?userId=${user.id}`);
+      setCurrentUser(user);
+
+      const [profileResponse, statsResponse] = await Promise.all([
+        axios.get(`/api/user-profile?userId=${user.id}`).catch(() => ({ data: null })),
+        axios.get(`/api/user-stats?userId=${user.id}`).catch(() => ({ data: { invoices_count: 0, forms_count: 0, ai_queries_count: 0 } }))
+      ]);
       
-      if (response.data) {
-        setUserProfile(response.data);
-        setCurrentPlan(response.data.subscription_status || 'free');
+      if (profileResponse.data) {
+        setUserProfile(profileResponse.data);
+        setCurrentPlan(profileResponse.data.subscription_status || 'free');
+      }
+
+      if (statsResponse.data) {
+        setUserStats(statsResponse.data);
       }
     } catch (err) {
-      console.error('Error fetching user profile:', err);
+      console.error('Error fetching user data:', err);
       setError('Failed to load profile');
     } finally {
       setLoading(false);
@@ -128,10 +139,10 @@ export default function ProfileBilling() {
   ];
 
   const usageStats = {
-    invoicesGenerated: 2,
+    invoicesGenerated: userStats.invoices_count || 0,
     invoiceLimit: currentPlan === 'free' ? 3 : '∞',
-    formsCompleted: 1,
-    aiQueries: 5,
+    formsCompleted: userStats.forms_count || 0,
+    aiQueries: userStats.ai_queries_count || 0,
   };
 
   return (
@@ -151,17 +162,23 @@ export default function ProfileBilling() {
             </div>
             <div className="ml-4">
               <h3 className="font-semibold text-gray-900">Account</h3>
-              <p className="text-sm text-gray-600">Demo User</p>
+              <p className="text-sm text-gray-600">
+                {currentUser?.user_metadata?.full_name || currentUser?.email?.split('@')[0] || 'User'}
+              </p>
             </div>
           </div>
           <div className="space-y-2 text-sm">
             <div className="flex justify-between">
               <span className="text-gray-600">Email:</span>
-              <span className="font-medium">demo@exportai.com</span>
+              <span className="font-medium truncate ml-2">{currentUser?.email || 'Not available'}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-gray-600">Member since:</span>
-              <span className="font-medium">Jan 2025</span>
+              <span className="font-medium">
+                {currentUser?.created_at 
+                  ? new Date(currentUser.created_at).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+                  : 'Recently'}
+              </span>
             </div>
           </div>
         </div>
