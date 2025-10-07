@@ -12,7 +12,7 @@ channel = "stable-24_11"
 run = ["node", "server.js"]
 deploymentTarget = "autoscale"
 ignorePorts = false
-build = ["bash", "-c", "cd my-app && npm run build && cd .. && node build-copy.js"]
+build = ["bash", "-c", "cd my-app && npm run build && node ../build-copy.js"]
 
 [agent]
 expertMode = true
