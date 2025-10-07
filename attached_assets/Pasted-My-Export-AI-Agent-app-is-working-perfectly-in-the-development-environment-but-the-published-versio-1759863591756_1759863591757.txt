@@ -1,0 +1,128 @@
+My Export AI Agent app is working perfectly in the development environment, but the published version (https://export-agent-invoice-rspats2739.replit.app
+) is still running old code, so the Stripe checkout endpoint (/api/create-checkout-session) returns 404 Not Found, and the Profile & Billing section is not clickable or functional.
+
+Please fully redeploy the latest code version and make sure the live published app runs the same version that currently works in development.
+
+Here’s what needs to be fixed and verified:
+
+🧠 1. Sync and Redeploy
+
+Redeploy using the latest working code (the one that has all the fixed endpoints).
+
+Confirm the deployed version includes:
+
+/api/create-checkout-session
+
+/api/billing-portal
+
+/api/webhook
+
+/api/user-profile
+
+/api/user-stats
+
+Verify that server.js and App.jsx from the latest commit are used.
+
+Ensure environment variables are correctly loaded in production:
+
+SUPABASE_URL
+
+SUPABASE_ANON_KEY
+
+STRIPE_SECRET_KEY
+
+STRIPE_WEBHOOK_SECRET
+
+VITE_STRIPE_PUBLISHABLE_KEY
+
+OPENAI_API_KEY
+
+💳 2. Fix Stripe Checkout
+
+Make /api/create-checkout-session live and working.
+
+Ensure success URL and cancel URL are correct:
+
+success_url: `${FRONTEND_URL}/success?session_id={CHECKOUT_SESSION_ID}`,
+cancel_url: `${FRONTEND_URL}/cancel`
+
+
+Verify that the Stripe test card works:
+
+4242 4242 4242 4242
+Expiry: any future date
+CVC: any 3 digits
+ZIP: any 5 digits
+
+
+Ensure webhook is configured and active at:
+https://export-agent-invoice-rspats2739.replit.app/api/webhook
+with events:
+
+checkout.session.completed
+
+customer.subscription.deleted
+
+Update STRIPE_WEBHOOK_SECRET in Replit Secrets if necessary.
+
+👤 3. Fix Profile & Billing Page
+
+The "Upgrade to Pro" button should open Stripe checkout.
+
+The "Manage Billing" button should open the Stripe billing portal.
+
+The plan should auto-update to “Pro” after successful payment.
+
+All data (email, plan, join date, invoice count) should load from Supabase dynamically.
+
+Make everything clickable and functional, not static.
+
+🧾 4. Dashboard Fixes
+
+“Failed to load stats” should be fixed by ensuring /api/user-stats pulls from Supabase tables:
+
+invoices
+
+export_forms
+
+chat_history
+
+Confirm that the “Invoices”, “Forms”, and “AI queries” counters update correctly.
+
+⚙️ 5. Deployment Configuration
+
+Make sure REPLIT_DEPLOYMENT=1 and the live domain is automatically detected:
+
+const FRONTEND_URL = process.env.REPLIT_DEPLOYMENT
+    ? "https://export-agent-invoice-rspats2739.replit.app"
+    : process.env.DEV_FRONTEND_URL || "http://localhost:5000";
+
+
+Rebuild the frontend (npm run build) before deploying.
+
+Run:
+
+Build command: cd my-app && npm run build && cd .. && node build-copy.js
+Run command: node server.js
+
+✅ 6. Final Verification After Fix
+
+After deployment, please confirm the following:
+
+Login via Google OAuth works (redirect_uri fixed).
+
+Dashboard loads with stats (no error).
+
+Invoice generator works and saves to Supabase.
+
+Stripe checkout creates sessions successfully.
+
+Payment redirects to /success and plan updates to Pro.
+
+“Manage Billing” opens the Stripe customer portal.
+
+Profile page displays live user data (email, join date, plan).
+
+💬 Final Step
+
+Once everything is fixed, please rebuild and redeploy the app live so that the published site matches the working dev version, with Stripe checkout fully functional and all profile & billing features active.
