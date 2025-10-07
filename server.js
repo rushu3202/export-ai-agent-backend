@@ -169,8 +169,8 @@ app.post('/api/create-checkout-session', async (req, res) => {
       ],
       customer_email: userEmail,
       client_reference_id: userId,
-      success_url: `${FRONTEND_URL}/profile?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${FRONTEND_URL}/profile`,
+      success_url: `${FRONTEND_URL}/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${FRONTEND_URL}/cancel`,
       metadata: {
         userId: userId
       }
