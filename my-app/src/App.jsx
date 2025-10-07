@@ -8,6 +8,7 @@ import ExportForms from './pages/ExportForms';
 import AIChatAssistant from './pages/AIChatAssistant';
 import ShipmentTracker from './pages/ShipmentTracker';
 import ProfileBilling from './pages/ProfileBilling';
+import Pricing from './pages/Pricing';
 import Success from './pages/Success';
 import Cancel from './pages/Cancel';
 import './App.css';
@@ -27,6 +28,7 @@ function App() {
           <Route path="chat" element={<AIChatAssistant />} />
           <Route path="shipment" element={<ShipmentTracker />} />
           <Route path="profile" element={<ProfileBilling />} />
+          <Route path="pricing" element={<Pricing />} />
         </Route>
       </Routes>
     </BrowserRouter>

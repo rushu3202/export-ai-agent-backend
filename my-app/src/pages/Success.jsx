@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
+import { CheckCircle, ArrowRight, Sparkles } from 'lucide-react';
 
 export default function Success() {
   const navigate = useNavigate();
@@ -14,7 +15,7 @@ export default function Success() {
   }, [navigate]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-green-50 to-emerald-100 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-green-50 via-emerald-50 to-teal-50 flex items-center justify-center p-4">
       <motion.div
         initial={{ opacity: 0, scale: 0.9 }}
         animate={{ opacity: 1, scale: 1 }}
@@ -25,47 +26,40 @@ export default function Success() {
           initial={{ scale: 0 }}
           animate={{ scale: 1 }}
           transition={{ delay: 0.2, type: 'spring', stiffness: 200 }}
-          className="w-24 h-24 bg-green-500 rounded-full flex items-center justify-center mx-auto mb-6"
+          className="w-24 h-24 bg-gradient-to-br from-green-500 to-emerald-600 rounded-full flex items-center justify-center mx-auto mb-6 shadow-xl"
         >
-          <svg
-            className="w-12 h-12 text-white"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={3}
-              d="M5 13l4 4L19 7"
-            />
-          </svg>
+          <CheckCircle className="w-16 h-16 text-white" strokeWidth={3} />
         </motion.div>
         
-        <h1 className="text-3xl font-bold text-gray-900 mb-4">
-          🎉 Payment Successful!
-        </h1>
+        <div className="flex items-center justify-center gap-2 mb-4">
+          <Sparkles className="w-6 h-6 text-yellow-500" />
+          <h1 className="text-3xl font-bold text-gray-900">
+            Payment Successful!
+          </h1>
+          <Sparkles className="w-6 h-6 text-yellow-500" />
+        </div>
         
-        <p className="text-lg text-gray-700 mb-6">
-          You are now a <span className="font-bold text-green-600">Pro</span> member!
+        <p className="text-lg text-gray-700 mb-2">
+          Welcome to <span className="font-bold text-primary">ExportAgent Pro</span>
         </p>
         
-        <p className="text-sm text-gray-500 mb-8">
+        <p className="text-sm text-gray-600 mb-8">
           Enjoy unlimited access to all premium features including unlimited invoices, 
           export forms, and advanced AI assistance.
         </p>
         
-        <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-6">
-          <p className="text-sm text-green-800">
-            Redirecting to your profile in 3 seconds...
+        <div className="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-xl p-4 mb-6">
+          <p className="text-sm text-green-800 font-medium">
+            Redirecting to your dashboard in 3 seconds...
           </p>
         </div>
         
         <button
-          onClick={() => navigate('/profile')}
-          className="bg-green-600 text-white px-8 py-3 rounded-lg font-semibold hover:bg-green-700 transition-colors"
+          onClick={() => navigate('/dashboard')}
+          className="bg-gradient-to-r from-primary to-blue-600 text-white px-8 py-3 rounded-xl font-bold hover:shadow-xl transition-all duration-200 flex items-center justify-center gap-2 mx-auto"
         >
-          Go to Profile Now
+          Go to Dashboard
+          <ArrowRight className="w-5 h-5" />
         </button>
       </motion.div>
     </div>

@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
-import { Home, FileText, ClipboardList, MessageSquare, Package, Menu, X, User, LogOut } from 'lucide-react';
+import { Home, FileText, ClipboardList, MessageSquare, Package, Menu, X, User, LogOut, Globe } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from '../supabaseClient';
@@ -7,20 +7,41 @@ import { supabase } from '../supabaseClient';
 export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [user, setUser] = useState(null);
+  const [userProfile, setUserProfile] = useState(null);
 
   const location = useLocation();
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
+      if (session?.user) {
+        fetchUserProfile(session.user.id);
+      }
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
+      if (session?.user) {
+        fetchUserProfile(session.user.id);
+      }
     });
 
     return () => subscription.unsubscribe();
   }, []);
+
+  const fetchUserProfile = async (userId) => {
+    try {
+      const { data } = await supabase
+        .from('user_profiles')
+        .select('subscription_status')
+        .eq('user_id', userId)
+        .single();
+      
+      setUserProfile(data);
+    } catch (error) {
+      console.error('Error fetching user profile:', error);
+    }
+  };
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -36,11 +57,16 @@ export default function Layout() {
     { name: 'Profile & Billing', href: '/profile', icon: User },
   ];
 
+  const isFreeUser = !userProfile || userProfile.subscription_status !== 'pro';
+
   return (
     <div className="min-h-screen bg-gray-50">
-      <div className="lg:hidden flex items-center justify-between bg-blue-600 text-white p-4">
-        <h1 className="text-xl font-bold">Export AI Agent</h1>
-        <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-2">
+      <div className="lg:hidden flex items-center justify-between bg-primary text-white p-4 shadow-lg">
+        <div className="flex items-center gap-2">
+          <Globe className="w-6 h-6" />
+          <h1 className="text-xl font-bold">ExportAgent</h1>
+        </div>
+        <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-2 hover:bg-primary-800 rounded-lg transition-colors">
           {sidebarOpen ? <X size={24} /> : <Menu size={24} />}
         </button>
       </div>
@@ -49,25 +75,28 @@ export default function Layout() {
         <aside className={`
           ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
           lg:translate-x-0 fixed lg:sticky top-0 left-0 z-40 w-64 h-screen
-          transition-transform bg-blue-600 text-white shadow-xl
+          transition-transform bg-gradient-to-b from-primary to-primary-800 text-white shadow-2xl
         `}>
           <div className="h-full flex flex-col">
-            <div className="p-6 hidden lg:block">
-              <h1 className="text-2xl font-bold">Export AI Agent</h1>
-              <p className="text-blue-200 text-sm mt-1">Automate Your Exports</p>
+            <div className="p-6 hidden lg:block border-b border-primary-600">
+              <div className="flex items-center gap-2 mb-2">
+                <Globe className="w-8 h-8" />
+                <h1 className="text-2xl font-bold">ExportAgent</h1>
+              </div>
+              <p className="text-blue-200 text-sm">Smart AI Platform for Exporters</p>
             </div>
 
-            <nav className="flex-1 px-4 py-6 space-y-2">
+            <nav className="flex-1 px-4 py-6 space-y-1">
               {navigation.map((item) => (
                 <NavLink
                   key={item.name}
                   to={item.href}
                   onClick={() => setSidebarOpen(false)}
                   className={({ isActive }) =>
-                    `flex items-center px-4 py-3 rounded-lg transition-colors ${
+                    `flex items-center px-4 py-3 rounded-xl transition-all duration-200 ${
                       isActive
-                        ? 'bg-blue-700 text-white'
-                        : 'text-blue-100 hover:bg-blue-700 hover:text-white'
+                        ? 'bg-white/20 text-white shadow-lg'
+                        : 'text-blue-100 hover:bg-white/10 hover:text-white'
                     }`
                   }
                 >
@@ -77,16 +106,29 @@ export default function Layout() {
               ))}
             </nav>
 
-            <div className="p-4 border-t border-blue-500">
+            {isFreeUser && (
+              <div className="mx-4 mb-4 p-4 bg-gradient-to-r from-secondary to-blue-400 rounded-2xl">
+                <p className="text-sm font-semibold mb-2">Upgrade to Pro</p>
+                <p className="text-xs text-blue-50 mb-3">Unlock unlimited invoices & AI features</p>
+                <NavLink
+                  to="/profile"
+                  className="block text-center bg-white text-primary px-4 py-2 rounded-lg font-semibold text-sm hover:bg-blue-50 transition-colors"
+                >
+                  Upgrade Now
+                </NavLink>
+              </div>
+            )}
+
+            <div className="p-4 border-t border-primary-600">
               {user && (
                 <div className="mb-4">
-                  <div className="flex items-center gap-2 px-3 py-2 bg-blue-700 rounded-lg">
+                  <div className="flex items-center gap-2 px-3 py-2 bg-white/10 rounded-xl mb-2">
                     <User className="w-4 h-4" />
                     <span className="text-sm truncate flex-1">{user.email}</span>
                   </div>
                   <button
                     onClick={handleLogout}
-                    className="w-full mt-2 flex items-center justify-center gap-2 px-3 py-2 bg-red-500 hover:bg-red-600 rounded-lg transition-colors text-sm"
+                    className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-red-500 hover:bg-red-600 rounded-xl transition-colors text-sm font-medium"
                   >
                     <LogOut className="w-4 h-4" />
                     Logout
@@ -94,10 +136,7 @@ export default function Layout() {
                 </div>
               )}
               <p className="text-blue-200 text-xs text-center">
-                © 2025 Export AI Agent
-              </p>
-              <p className="text-blue-300 text-xs text-center mt-1">
-                Built with ❤️ by Rushaleeben Patel
+                © 2025 ExportAgent
               </p>
             </div>
           </div>
