@@ -145,17 +145,10 @@ app.get('/health', (req, res) => {
 app.post('/api/create-checkout-session', async (req, res) => {
   try {
     const { userEmail, userId } = req.body;
-    console.log(`[Checkout DEBUG] === START CHECKOUT SESSION ===`);
-    console.log(`[Checkout DEBUG] Request body:`, JSON.stringify(req.body));
-    console.log(`[Checkout DEBUG] User ID: ${userId}`);
-    console.log(`[Checkout DEBUG] User Email: ${userEmail}`);
-    console.log(`[Checkout DEBUG] Frontend URL: ${FRONTEND_URL}`);
-    console.log(`[Checkout DEBUG] Stripe key exists: ${!!process.env.STRIPE_SECRET_KEY}`);
-    console.log(`[Checkout DEBUG] Stripe key starts with: ${process.env.STRIPE_SECRET_KEY?.substring(0, 7)}`);
-    console.log(`[Checkout DEBUG] Success URL will be: ${FRONTEND_URL}/success?session_id={CHECKOUT_SESSION_ID}`);
-    console.log(`[Checkout DEBUG] Cancel URL will be: ${FRONTEND_URL}/cancel`);
+    console.log(`[Checkout] Creating session for user: ${userId}, email: ${userEmail}`);
+    console.log(`[Checkout] Frontend URL: ${FRONTEND_URL}`);
     
-    const sessionConfig = {
+    const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
       payment_method_types: ['card'],
       line_items: [
@@ -181,26 +174,14 @@ app.post('/api/create-checkout-session', async (req, res) => {
       metadata: {
         userId: userId
       }
-    };
-    
-    console.log(`[Checkout DEBUG] Session config:`, JSON.stringify(sessionConfig, null, 2));
-    console.log(`[Checkout DEBUG] Calling stripe.checkout.sessions.create...`);
-    
-    const session = await stripe.checkout.sessions.create(sessionConfig);
+    });
 
-    console.log(`[Checkout DEBUG] ✅ Session created successfully!`);
-    console.log(`[Checkout DEBUG] Session ID: ${session.id}`);
-    console.log(`[Checkout DEBUG] Session URL: ${session.url}`);
-    console.log(`[Checkout DEBUG] === END CHECKOUT SESSION ===`);
-    
+    console.log(`[Checkout] Session created: ${session.id}`);
     res.json({ url: session.url });
   } catch (error) {
-    console.error('[Checkout ERROR] ❌ Failed to create session');
-    console.error('[Checkout ERROR] Error type:', error.type);
-    console.error('[Checkout ERROR] Error code:', error.code);
-    console.error('[Checkout ERROR] Error message:', error.message);
-    console.error('[Checkout ERROR] Full error:', JSON.stringify(error, null, 2));
-    console.error('[Checkout ERROR] Stack trace:', error.stack);
+    console.error('[Checkout] Error:', error.message);
+    console.error('[Checkout] Error type:', error.type);
+    console.error('[Checkout] Error code:', error.code);
     res.status(500).json({ error: error.message, type: error.type, code: error.code });
   }
 });
