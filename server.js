@@ -130,6 +130,94 @@ if (fs.existsSync(distFolder)) {
   app.use(express.static(distFolder));
 }
 
+// Authentication Middleware
+async function authenticateUser(req, res, next) {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'No authorization token provided' });
+    }
+
+    const token = authHeader.substring(7);
+    const { data: { user }, error } = await supabase.auth.getUser(token);
+
+    if (error || !user) {
+      return res.status(401).json({ error: 'Invalid or expired token' });
+    }
+
+    req.user = user;
+    next();
+  } catch (error) {
+    console.error('[Auth] Error:', error.message);
+    return res.status(401).json({ error: 'Authentication failed' });
+  }
+}
+
+// Usage Tier Checking Helper
+async function checkTierAndIncrement(userId, action) {
+  try {
+    const currentMonth = new Date().toISOString().slice(0, 7);
+
+    const { data: profile, error: profileError } = await supabase
+      .from('user_profiles')
+      .select('subscription_status')
+      .eq('id', userId)
+      .single();
+
+    if (profileError) throw profileError;
+
+    const plan = profile?.subscription_status || 'free';
+
+    const { data: usage, error: usageError } = await supabase
+      .from('usage_counters')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('month_yyyy', currentMonth)
+      .single();
+
+    let currentUsage = usage || {
+      user_id: userId,
+      month_yyyy: currentMonth,
+      docs_created: 0,
+      hs_searches: 0,
+      ai_queries: 0
+    };
+
+    const limits = {
+      free: { docs_created: 3, hs_searches: 5, ai_queries: 200 },
+      pro: { docs_created: Infinity, hs_searches: Infinity, ai_queries: Infinity },
+      business: { docs_created: Infinity, hs_searches: Infinity, ai_queries: Infinity }
+    };
+
+    const planLimits = limits[plan] || limits.free;
+
+    if (action === 'docs' && currentUsage.docs_created >= planLimits.docs_created) {
+      return { allowed: false, feature: 'docs', plan };
+    }
+    if (action === 'hs_searches' && currentUsage.hs_searches >= planLimits.hs_searches) {
+      return { allowed: false, feature: 'hs_searches', plan };
+    }
+    if (action === 'ai_queries' && currentUsage.ai_queries >= planLimits.ai_queries) {
+      return { allowed: false, feature: 'ai_queries', plan };
+    }
+
+    const updates = { ...currentUsage };
+    if (action === 'docs') updates.docs_created += 1;
+    if (action === 'hs_searches') updates.hs_searches += 1;
+    if (action === 'ai_queries') updates.ai_queries += 1;
+
+    await supabase
+      .from('usage_counters')
+      .upsert(updates, { onConflict: 'user_id,month_yyyy' });
+
+    console.log(`[Usage] ${userId} - ${action}: ${plan} plan, incremented successfully`);
+    return { allowed: true, plan };
+  } catch (error) {
+    console.error('[Usage Check] Error:', error.message);
+    return { allowed: true, plan: 'unknown' };
+  }
+}
+
 app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
@@ -517,6 +605,304 @@ app.post('/track', async (req, res) => {
     res.json(mockStatus);
   } catch (error) {
     console.error('Tracking error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// PHASE 1 API ENDPOINTS
+
+// Contacts endpoints
+app.get('/api/contacts', authenticateUser, async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('contacts')
+      .select('*')
+      .eq('user_id', req.user.id)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+    console.log(`[Contacts] Fetched ${data.length} contacts for user ${req.user.id}`);
+    res.json(data);
+  } catch (error) {
+    console.error('[Contacts GET] Error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/contacts', authenticateUser, async (req, res) => {
+  try {
+    const { type, name, company, email, phone, address } = req.body;
+    
+    const { data, error } = await supabase
+      .from('contacts')
+      .insert({
+        user_id: req.user.id,
+        type,
+        name,
+        company,
+        email,
+        phone,
+        address: address || {}
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+    console.log(`[Contacts] Created contact ${data.id} for user ${req.user.id}`);
+    res.json(data);
+  } catch (error) {
+    console.error('[Contacts POST] Error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put('/api/contacts/:id', authenticateUser, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { type, name, company, email, phone, address } = req.body;
+    
+    const { data, error } = await supabase
+      .from('contacts')
+      .update({
+        type,
+        name,
+        company,
+        email,
+        phone,
+        address,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', id)
+      .eq('user_id', req.user.id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    console.log(`[Contacts] Updated contact ${id} for user ${req.user.id}`);
+    res.json(data);
+  } catch (error) {
+    console.error('[Contacts PUT] Error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/contacts/:id', authenticateUser, async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const { error } = await supabase
+      .from('contacts')
+      .delete()
+      .eq('id', id)
+      .eq('user_id', req.user.id);
+
+    if (error) throw error;
+    console.log(`[Contacts] Deleted contact ${id} for user ${req.user.id}`);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('[Contacts DELETE] Error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Documents endpoints
+app.post('/api/documents/generate', authenticateUser, async (req, res) => {
+  try {
+    const tierCheck = await checkTierAndIncrement(req.user.id, 'docs');
+    
+    if (!tierCheck.allowed) {
+      console.log(`[Documents] Quota exceeded for user ${req.user.id} - ${tierCheck.feature}`);
+      return res.status(402).json({ 
+        error: 'quota_exceeded', 
+        feature: tierCheck.feature,
+        plan: tierCheck.plan,
+        message: 'Document generation limit reached. Please upgrade to Pro plan.'
+      });
+    }
+
+    const { type, title, data } = req.body;
+    
+    const { data: document, error } = await supabase
+      .from('documents')
+      .insert({
+        user_id: req.user.id,
+        type,
+        title,
+        data: data || {},
+        file_url: null
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+    console.log(`[Documents] Created ${type} document ${document.id} for user ${req.user.id}`);
+    res.json(document);
+  } catch (error) {
+    console.error('[Documents POST] Error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/documents/:id', authenticateUser, async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const { data, error } = await supabase
+      .from('documents')
+      .select('*')
+      .eq('id', id)
+      .eq('user_id', req.user.id)
+      .single();
+
+    if (error) throw error;
+    console.log(`[Documents] Fetched document ${id} for user ${req.user.id}`);
+    res.json(data);
+  } catch (error) {
+    console.error('[Documents GET] Error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// HS Code search endpoint
+app.post('/api/hs-search', authenticateUser, async (req, res) => {
+  try {
+    const tierCheck = await checkTierAndIncrement(req.user.id, 'hs_searches');
+    
+    if (!tierCheck.allowed) {
+      console.log(`[HS Search] Quota exceeded for user ${req.user.id}`);
+      return res.status(402).json({ 
+        error: 'quota_exceeded', 
+        feature: 'hs_searches',
+        plan: tierCheck.plan,
+        message: 'HS code search limit reached. Please upgrade to Pro plan.'
+      });
+    }
+
+    const { query, country } = req.body;
+
+    if (!openai) {
+      return res.status(503).json({ error: 'OpenAI not configured' });
+    }
+
+    const prompt = `Provide the 6-digit HS (Harmonized System) code for: "${query}". 
+    Destination country: ${country || 'General'}
+    
+    Respond with ONLY the HS code (6 digits) and confidence level (0-100).
+    Format: HSCODE|CONFIDENCE
+    Example: 620342|95`;
+
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [{ role: 'user', content: prompt }],
+      max_tokens: 30,
+      temperature: 0.3
+    });
+
+    const response = completion.choices[0].message.content.trim();
+    const [hsCode, confidenceStr] = response.split('|');
+    const confidence = parseFloat(confidenceStr) / 100 || 0.8;
+
+    const { data, error } = await supabase
+      .from('hs_searches')
+      .insert({
+        user_id: req.user.id,
+        query,
+        hs_code: hsCode?.trim() || '000000',
+        confidence,
+        country: country || null
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+    console.log(`[HS Search] Created search ${data.id} for user ${req.user.id}: ${query} -> ${hsCode}`);
+    res.json(data);
+  } catch (error) {
+    console.error('[HS Search] Error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Shipments endpoints
+app.post('/api/shipments', authenticateUser, async (req, res) => {
+  try {
+    const { reference, metadata } = req.body;
+    
+    const { data, error } = await supabase
+      .from('shipments')
+      .insert({
+        user_id: req.user.id,
+        reference,
+        status: 'created',
+        metadata: metadata || {}
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+    console.log(`[Shipments] Created shipment ${data.id} for user ${req.user.id}`);
+    res.json(data);
+  } catch (error) {
+    console.error('[Shipments POST] Error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put('/api/shipments/:id/status', authenticateUser, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+
+    if (!['created', 'shipped', 'customs', 'delivered'].includes(status)) {
+      return res.status(400).json({ error: 'Invalid status value' });
+    }
+    
+    const { data, error } = await supabase
+      .from('shipments')
+      .update({
+        status,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', id)
+      .eq('user_id', req.user.id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    console.log(`[Shipments] Updated shipment ${id} status to ${status} for user ${req.user.id}`);
+    res.json(data);
+  } catch (error) {
+    console.error('[Shipments PUT] Error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Usage endpoint
+app.get('/api/usage', authenticateUser, async (req, res) => {
+  try {
+    const currentMonth = new Date().toISOString().slice(0, 7);
+    
+    const { data, error } = await supabase
+      .from('usage_counters')
+      .select('*')
+      .eq('user_id', req.user.id)
+      .eq('month_yyyy', currentMonth)
+      .single();
+
+    if (error && error.code !== 'PGRST116') throw error;
+
+    const usage = data || {
+      user_id: req.user.id,
+      month_yyyy: currentMonth,
+      docs_created: 0,
+      hs_searches: 0,
+      ai_queries: 0
+    };
+
+    console.log(`[Usage] Fetched usage for user ${req.user.id}: ${JSON.stringify(usage)}`);
+    res.json(usage);
+  } catch (error) {
+    console.error('[Usage GET] Error:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
