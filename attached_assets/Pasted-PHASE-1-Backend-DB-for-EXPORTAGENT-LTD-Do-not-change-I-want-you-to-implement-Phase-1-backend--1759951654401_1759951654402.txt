@@ -1,0 +1,95 @@
+PHASE 1 — Backend & DB for EXPORTAGENT LTD (Do not change)
+
+I want you to implement Phase-1 backend and database work for ExportAgent. Follow these exact steps and produce logged output and a brief test report when done.
+
+Environment: Replit project (existing), Supabase Postgres as DB, Node/Express backend (server.js), frontend React (my-app). Use existing secrets and keep OpenAI/Stripe keys server-side only.
+
+Phase-1 tasks (exact):
+
+Database schema
+
+Add tables (if not present) with migrations or SQL scripts:
+
+contacts (id, user_id, type enum buyer|supplier, name, company, email, phone, address jsonb, created_at)
+
+documents (id, user_id, type enum invoice|packing_list|proforma|bol, title, file_url, data jsonb, created_at)
+
+hs_searches (id, user_id, query, hs_code, confidence float, country, created_at)
+
+shipments (id, user_id, reference, status enum [created,shipped,customs,delivered], metadata jsonb, created_at)
+
+usage_counters (user_id, month_yyyy, docs_created int, hs_searches int, ai_queries int)
+
+Provide SQL file supabase_setup_phase1.sql and run it (or use Supabase SQL Editor).
+
+API endpoints (backend Express)
+
+GET /api/contacts → list contacts for authenticated user
+
+POST /api/contacts → create contact
+
+PUT /api/contacts/:id → update
+
+DELETE /api/contacts/:id
+
+POST /api/documents/generate → accept type + data, create DB record (store data json), return documentId
+
+GET /api/documents/:id → return document metadata and file URL if exists
+
+POST /api/hs-search → accept query + country, call OpenAI to suggest HS code, save to hs_searches, increment usage counter (respect free tier)
+
+POST /api/shipments → create shipment
+
+PUT /api/shipments/:id/status → update status
+
+GET /api/usage → return current month usage counters
+
+Add GET /health to return service status {status:"ok", services:{stripe:bool,supabase:bool,openai:bool}}
+
+Usage & Tier logic
+
+Implement checkTierAndIncrement(userId, action) reusable helper:
+
+Checks user's plan from Supabase (free/pro/business)
+
+If free and over limits (docs_created ≥ 3 / month, hs_searches ≥ 5 / month, ai_queries ≥ 200/month) return HTTP 402 with clear JSON {error:"quota_exceeded","feature":"docs"}.
+
+Otherwise increment usage in usage_counters.
+
+Ensure all endpoints that perform billable actions call this helper.
+
+Security & Auth
+
+All endpoints must require authentication (Supabase JWT or existing auth middleware). If no auth present, create middleware to verify session and set req.user.
+
+Validate inputs (JSON schema minimal validation).
+
+PDF/invoice integration changes
+
+Update existing PDF generator to save documents DB record when generated, and include company footer fields (read from process.env.COMPANY_NUMBER & process.env.REGISTERED_ADDRESS).
+
+Logging & Tests
+
+Add console logs for key operations (creating HS search, document generate, checkout session created).
+
+Provide a simple script scripts/phase1_test.sh that runs:
+
+curl /health
+
+curl POST /api/hs-search (sample)
+
+curl POST /api/documents/generate (sample)
+
+curl GET /api/usage
+
+Save test output to phase1_test_output.txt.
+
+Deliverables
+
+Commit all changes to repo.
+
+Provide supabase_setup_phase1.sql, scripts/phase1_test.sh, and phase1_test_output.txt in repo root.
+
+Short summary log (in message): list endpoints added, tables created, any secrets needed, and one-line next steps for Phase-2.
+
+Important: Do not change Stripe pricing yet. Do not alter frontend UI. Build backend & DB only. Run the SQL on Supabase and confirm migrations success. Return the success/failure logs and the test output file.
