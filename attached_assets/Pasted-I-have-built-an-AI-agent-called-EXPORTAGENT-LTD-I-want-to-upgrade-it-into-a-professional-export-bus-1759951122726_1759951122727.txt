@@ -1,0 +1,114 @@
+I have built an AI agent called EXPORTAGENT LTD.
+I want to upgrade it into a professional export business platform with monetizable features.
+Please build and structure the app step by step with clean, modern UI, secure backend, and Stripe payment integration.
+
+🧰 Tech Stack: React (frontend), Node.js/Express (backend), MongoDB (database), Stripe (payments), OpenAI API (AI features).
+
+🏗️ Core Features to Build / Upgrade:
+
+🧾 Smart Export Documentation Generator
+
+Auto-generate commercial invoices, packing lists, proforma invoices, shipping docs.
+
+Allow users to fill a simple form → generate PDF with company logo & footer.
+
+Save generated documents in the database for future access.
+
+Allow download as PDF or Excel.
+
+🌍 HS Code & Duty Finder (AI)
+
+Input product name → AI/DB suggests correct HS code & duty info.
+
+Allow free 5 searches per user, then upgrade to Pro.
+
+📦 Shipment & Compliance Tracker
+
+Dashboard to manually add shipments and track status.
+
+Stages: created → shipped → customs → delivered.
+
+Automated reminders or alerts for shipment updates.
+
+🤖 AI Export Advisor
+
+Integrated AI chatbot to answer export/import related questions (e.g., required docs, taxes, rules for different countries).
+
+Example: User types “export textiles to UAE” → chatbot replies with full step-by-step export procedure.
+
+🧑‍💼 Client & Supplier CRM
+
+Section to add, edit, and store buyer/supplier information.
+
+One-click autofill for document generator.
+
+Export contacts to Excel.
+
+💳 Billing & Payment System
+
+Integrate Stripe for user subscriptions: Free, Pro (£29/month), and Business (£79/month).
+
+Auto-generate invoices with payment link.
+
+Dashboard to track paid/unpaid invoices.
+
+🌐 Multi-Language Support
+
+Add basic support for English + other languages (start with Hindi and Arabic).
+
+Allow document generation in selected language.
+
+👤 Authentication & User Dashboard
+
+Secure user login/signup (email + password).
+
+Save user profile, company details, and generated docs.
+
+Users can upgrade to Pro or Business plan through Stripe.
+
+🧾 Company Footer (add to website and invoices):
+
+EXPORTAGENT LTD  
+Registered in England and Wales  
+Company No: [INSERT YOUR COMPANY NUMBER]  
+Registered Address: [INSERT REGISTERED ADDRESS]  
+VAT (if registered): [Leave blank until registered]  
+
+
+Add this footer to the public website, invoice PDFs, and email templates.
+
+🪙 Monetization Rules:
+
+Free plan: limited document generation + limited HS code searches + basic chatbot.
+
+Pro plan (£29/month): unlimited docs + HS code finder + full AI advisor.
+
+Business plan (£79/month): everything + CRM + shipment tracker.
+
+🔐 Security:
+
+Protect OpenAI API key on backend only.
+
+User authentication with JWT.
+
+Stripe webhook for payment confirmation.
+
+📲 UI Requirements:
+
+Clean dashboard with side navigation (Documents, HS Codes, Shipments, CRM, AI Chat, Settings).
+
+Use Tailwind CSS or Shadcn UI.
+
+Mobile responsive.
+
+✅ Please build this project step by step:
+
+Set up backend routes & database first.
+
+Then UI dashboard structure.
+
+Then feature by feature.
+
+Connect Stripe payments at the end.
+
+✨ Goal: Make EXPORTAGENT LTD a professional export assistant platform that people can pay for and use daily.
