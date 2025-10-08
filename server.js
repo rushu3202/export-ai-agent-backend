@@ -394,8 +394,20 @@ async function getHSCode(description) {
   }
 }
 
-app.post('/generate-invoice', async (req, res) => {
+app.post('/generate-invoice', authenticateUser, async (req, res) => {
   try {
+    const tierCheck = await checkTierAndIncrement(req.user.id, 'docs');
+    
+    if (!tierCheck.allowed) {
+      console.log(`[Invoice] Quota exceeded for user ${req.user.id}`);
+      return res.status(402).json({ 
+        error: 'quota_exceeded', 
+        feature: 'docs',
+        plan: tierCheck.plan,
+        message: 'Document generation limit reached. Please upgrade to Pro plan.'
+      });
+    }
+
     const payload = req.body || {};
     let { sellerName, buyerName, items, currency } = payload;
 
@@ -520,30 +532,28 @@ app.post('/generate-invoice', async (req, res) => {
 
     doc.end();
 
-    // Save invoice to documents table if userId is provided
-    if (payload.userId) {
-      try {
-        await supabase
-          .from('documents')
-          .insert({
-            user_id: payload.userId,
-            type: 'invoice',
-            title: `Invoice ${invoiceNo}`,
-            data: {
-              seller_name: sellerName,
-              buyer_name: buyerName,
-              items,
-              currency,
-              total_amount: grandTotal,
-              invoice_number: invoiceNo,
-              invoice_date: invoiceDate
-            },
-            file_url: null
-          });
-        console.log(`[PDF Generator] Saved invoice ${invoiceNo} to documents for user ${payload.userId}`);
-      } catch (dbError) {
-        console.error('[PDF Generator] Failed to save to documents:', dbError.message);
-      }
+    // Save invoice to documents table (use authenticated user ID)
+    try {
+      await supabase
+        .from('documents')
+        .insert({
+          user_id: req.user.id,
+          type: 'invoice',
+          title: `Invoice ${invoiceNo}`,
+          data: {
+            seller_name: sellerName,
+            buyer_name: buyerName,
+            items,
+            currency,
+            total_amount: grandTotal,
+            invoice_number: invoiceNo,
+            invoice_date: invoiceDate
+          },
+          file_url: null
+        });
+      console.log(`[PDF Generator] Saved invoice ${invoiceNo} to documents for user ${req.user.id}`);
+    } catch (dbError) {
+      console.error('[PDF Generator] Failed to save to documents:', dbError.message);
     }
   } catch (err) {
     console.error("Generate invoice error:", err);
@@ -551,8 +561,20 @@ app.post('/generate-invoice', async (req, res) => {
   }
 });
 
-app.post('/chat', async (req, res) => {
+app.post('/chat', authenticateUser, async (req, res) => {
   try {
+    const tierCheck = await checkTierAndIncrement(req.user.id, 'ai_queries');
+    
+    if (!tierCheck.allowed) {
+      console.log(`[Chat] AI quota exceeded for user ${req.user.id}`);
+      return res.status(402).json({ 
+        error: 'quota_exceeded', 
+        feature: 'ai_queries',
+        plan: tierCheck.plan,
+        message: 'AI query limit reached. Please upgrade to Pro plan.'
+      });
+    }
+
     const { message, history = [] } = req.body;
 
     if (!openai) {

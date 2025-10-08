@@ -2,7 +2,7 @@
 Base URL: http://localhost:5000
 
 1. Testing /health endpoint...
-Response: {"status":"ok","timestamp":"2025-10-08T19:32:59.522Z","services":{"stripe":true,"supabase":true,"openai":true}}
+Response: {"status":"ok","timestamp":"2025-10-08T19:36:01.451Z","services":{"stripe":true,"supabase":true,"openai":true}}
 
 2. Testing /api/hs-search endpoint (auth required - expect 401)...
 Response: {"error":"No authorization token provided"}
