@@ -1123,6 +1123,66 @@ app.put('/api/shipments/:id/status', authenticateUser, async (req, res) => {
   }
 });
 
+// AI Insights endpoint
+app.get('/api/insights', authenticateUser, async (req, res) => {
+  try {
+    const currentMonth = new Date().toISOString().slice(0, 7);
+    const monthStart = new Date(currentMonth + '-01').toISOString();
+    
+    // Fetch invoices from this month
+    const { data: documents } = await supabase
+      .from('documents')
+      .select('*')
+      .eq('user_id', req.user.id)
+      .eq('type', 'invoice')
+      .gte('created_at', monthStart);
+    
+    const invoices = documents || [];
+    
+    // Calculate insights
+    const totalInvoices = invoices.length;
+    
+    // Top 3 clients by invoice count
+    const clientCounts = {};
+    invoices.forEach(inv => {
+      const client = inv.data?.buyer_name || 'Unknown';
+      clientCounts[client] = (clientCounts[client] || 0) + 1;
+    });
+    const topClients = Object.entries(clientCounts)
+      .sort(([,a], [,b]) => b - a)
+      .slice(0, 3)
+      .map(([name, count]) => ({ name, count }));
+    
+    // Most used currency
+    const currencyCounts = {};
+    invoices.forEach(inv => {
+      const curr = inv.data?.currency || 'USD';
+      currencyCounts[curr] = (currencyCounts[curr] || 0) + 1;
+    });
+    const mostUsedCurrency = Object.entries(currencyCounts)
+      .sort(([,a], [,b]) => b - a)[0]?.[0] || 'USD';
+    
+    // Total export value
+    const totalValue = invoices.reduce((sum, inv) => {
+      return sum + (inv.data?.total_amount || 0);
+    }, 0);
+    
+    res.json({
+      totalInvoices,
+      topClients,
+      mostUsedCurrency,
+      totalValue: totalValue.toFixed(2),
+      currencyBreakdown: Object.entries(currencyCounts).map(([currency, count]) => ({
+        currency,
+        count
+      }))
+    });
+  } catch (error) {
+    console.error('[Insights] Error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Usage endpoint
 app.get('/api/usage', authenticateUser, async (req, res) => {
   try {

@@ -17,10 +17,26 @@ export default function Home() {
   const [userProfile, setUserProfile] = useState(null);
   const [showWelcome, setShowWelcome] = useState(true);
   const [usage, setUsage] = useState(null);
+  const [insights, setInsights] = useState(null);
 
   useEffect(() => {
     fetchUserStats();
+    fetchInsights();
   }, []);
+
+  const fetchInsights = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+
+      const response = await axios.get('/api/insights', {
+        headers: { Authorization: `Bearer ${session.access_token}` }
+      });
+      setInsights(response.data);
+    } catch (err) {
+      console.error('Error fetching insights:', err);
+    }
+  };
 
   const fetchUserStats = async () => {
     try {
@@ -251,6 +267,44 @@ export default function Home() {
                   />
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {insights && (
+        <div className="mb-10 bg-gradient-to-r from-indigo-50 to-purple-50 rounded-2xl p-6 border border-indigo-200">
+          <div className="flex items-center gap-3 mb-6">
+            <Sparkles className="w-6 h-6 text-indigo-600" />
+            <h2 className="text-2xl font-bold text-gray-900">AI Insights - This Month</h2>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="bg-white rounded-xl p-4 shadow-sm">
+              <p className="text-sm text-gray-600 mb-1">Total Invoices</p>
+              <p className="text-3xl font-bold text-indigo-600">{insights.totalInvoices}</p>
+            </div>
+            <div className="bg-white rounded-xl p-4 shadow-sm">
+              <p className="text-sm text-gray-600 mb-1">Most Used Currency</p>
+              <p className="text-3xl font-bold text-green-600">{insights.mostUsedCurrency}</p>
+            </div>
+            <div className="bg-white rounded-xl p-4 shadow-sm">
+              <p className="text-sm text-gray-600 mb-1">Total Export Value</p>
+              <p className="text-2xl font-bold text-blue-600">{insights.mostUsedCurrency} {insights.totalValue}</p>
+            </div>
+            <div className="bg-white rounded-xl p-4 shadow-sm">
+              <p className="text-sm text-gray-600 mb-2">Top Clients</p>
+              {insights.topClients.length > 0 ? (
+                <div className="space-y-1">
+                  {insights.topClients.map((client, idx) => (
+                    <div key={idx} className="flex items-center justify-between">
+                      <span className="text-sm font-medium text-gray-700 truncate">{client.name}</span>
+                      <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-1 rounded-full">{client.count}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-gray-500">No data yet</p>
+              )}
             </div>
           </div>
         </div>
