@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { FileDown, Plus, Trash2, CheckCircle, Mail } from 'lucide-react';
+import { FileDown, Plus, Trash2, CheckCircle, Mail, Users } from 'lucide-react';
 import { supabase } from '../supabaseClient';
 import axios from 'axios';
 
@@ -18,9 +18,12 @@ export default function InvoiceGenerator() {
   const [successMessage, setSuccessMessage] = useState('');
   const [error, setError] = useState('');
   const [emailEnabled, setEmailEnabled] = useState(false);
+  const [contacts, setContacts] = useState([]);
+  const [selectedContact, setSelectedContact] = useState('');
 
   useEffect(() => {
     checkEmailConfig();
+    fetchContacts();
   }, []);
 
   const checkEmailConfig = async () => {
@@ -29,6 +32,36 @@ export default function InvoiceGenerator() {
       setEmailEnabled(response.data.features.email);
     } catch (err) {
       console.error('Failed to check email config:', err);
+    }
+  };
+
+  const fetchContacts = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+
+      const response = await axios.get('/api/contacts', {
+        headers: { 'Authorization': `Bearer ${session.access_token}` }
+      });
+      setContacts(response.data || []);
+    } catch (err) {
+      console.error('Failed to fetch contacts:', err);
+    }
+  };
+
+  const handleContactSelect = (contactId) => {
+    setSelectedContact(contactId);
+    if (!contactId) {
+      setBuyerName('Global Import Ltd');
+      setBuyerEmail('');
+      return;
+    }
+
+    const contact = contacts.find(c => c.id === contactId);
+    if (contact) {
+      const displayName = contact.company || contact.name;
+      setBuyerName(displayName);
+      setBuyerEmail(contact.email || '');
     }
   };
 
@@ -156,6 +189,27 @@ export default function InvoiceGenerator() {
       )}
 
       <div className="bg-white rounded-2xl shadow-lg p-6 border border-gray-100">
+        {contacts.length > 0 && (
+          <div className="mb-6 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-4">
+            <label className="block text-sm font-semibold text-gray-700 mb-2 flex items-center">
+              <Users className="w-4 h-4 mr-2 text-blue-600" />
+              Quick Fill from Contacts
+            </label>
+            <select
+              value={selectedContact}
+              onChange={(e) => handleContactSelect(e.target.value)}
+              className="w-full px-4 py-2 border border-blue-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+            >
+              <option value="">-- Select a saved contact to auto-fill --</option>
+              {contacts.map(contact => (
+                <option key={contact.id} value={contact.id}>
+                  {contact.company || contact.name} {contact.email ? `(${contact.email})` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
