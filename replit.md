@@ -40,14 +40,41 @@ The platform is built with a React frontend and a Node.js/Express backend.
 - **OpenAI**: Powers AI features such as HS code assignment, expert chat assistance (GPT-4-mini), and AI-guided form filling.
 - **Crisp Chat**: Live chat widget for 24/7 customer support (requires setup - see Configuration below).
 
-## Recent Updates - Sprint 1: Marketing & Conversion
-### High-Converting Landing Page (October 2025)
+## Recent Updates - Sprint 1: Marketing & Conversion (October 2025)
+### High-Converting Landing Page
 - **Professional Landing Page**: Animated hero section with ship + world map animations, clear USP
 - **Conversion Elements**: Multiple CTAs (Start Free, Book Demo, Upgrade), trust badges, testimonials
 - **Trust & Security**: Stats display (10,000+ users, 150+ countries), partner logos, verified company info
 - **Company Footer**: EXPORTAGENT LTD details, company number, address, contact information
 - **Routing Update**: "/" = public landing, "/app/*" = authenticated app, "/login" = authentication
 - **Live Chat Integration**: Crisp Chat widget on all pages for customer support
+
+### SEO Optimization & Mobile Responsiveness
+- **Comprehensive SEO**: Dynamic meta tags, Open Graph, Twitter Cards, JSON-LD structured data
+- **Mobile Optimization**: Responsive viewport, theme color, Apple mobile app support, PWA-ready
+- **Performance**: Preconnect to fonts/APIs, DNS prefetch for Stripe/OpenAI
+- **Search Engine Features**: Rich snippets with company info, 4.9/5 ratings, structured data schema
+
+### User Onboarding & Dashboard Tour
+- **4-Step Onboarding Flow**: 
+  - Step 1: Business type selection (Manufacturer, Trader, Service Provider)
+  - Step 2: Company details (name, address, industry)
+  - Step 3: Primary goal selection (invoices, documents, HS codes, marketplace)
+  - Step 4: Get started CTAs (Create Invoice, Upgrade to Pro, Skip)
+  - Automatically shows on first login, marks onboarding_completed in database
+  
+- **Interactive Dashboard Tour**:
+  - AI-powered product tour with tooltips and highlights
+  - 4-step walkthrough: Stats Section → AI Insights → Quick Actions → Sidebar Navigation
+  - Each step includes AI assistant tips and best practices
+  - Shows after onboarding completion (dashboard_tour_completed flag)
+  - Progress indicators, skip option, smooth animations
+  
+- **Database Schema Updates**:
+  - Added: onboarding_completed, dashboard_tour_completed (boolean)
+  - Added: industry, business_type, primary_goal (varchar)
+  - Backend endpoints: /api/complete-onboarding, /api/complete-dashboard-tour
+  - All authenticated with Supabase session tokens
 
 ## Configuration Required
 ### Crisp Chat Setup

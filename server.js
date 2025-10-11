@@ -434,6 +434,33 @@ app.post('/api/complete-onboarding', authenticateUser, async (req, res) => {
   }
 });
 
+app.post('/api/complete-dashboard-tour', authenticateUser, async (req, res) => {
+  try {
+    console.log(`[Dashboard Tour] Completing tour for user: ${req.user.id}`);
+
+    const { data, error } = await supabase
+      .from('user_profiles')
+      .update({
+        dashboard_tour_completed: true,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', req.user.id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('[Dashboard Tour] Update error:', error);
+      throw error;
+    }
+
+    console.log(`[Dashboard Tour] Successfully completed for user: ${req.user.id}`);
+    res.json({ success: true, profile: data });
+  } catch (error) {
+    console.error('[Dashboard Tour] Error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 async function getHSCode(description) {
   if (!openai) return "000000";
   try {

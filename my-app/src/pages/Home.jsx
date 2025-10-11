@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { supabase } from '../supabaseClient';
 import axios from 'axios';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+import DashboardTour from '../components/DashboardTour';
 
 export default function Home() {
   const [stats, setStats] = useState([
@@ -18,6 +19,7 @@ export default function Home() {
   const [showWelcome, setShowWelcome] = useState(true);
   const [usage, setUsage] = useState(null);
   const [insights, setInsights] = useState(null);
+  const [showTour, setShowTour] = useState(false);
 
   useEffect(() => {
     fetchUserStats();
@@ -55,11 +57,15 @@ export default function Home() {
 
       const { data: profile } = await supabase
         .from('user_profiles')
-        .select('subscription_status')
+        .select('subscription_status, dashboard_tour_completed, onboarding_completed')
         .eq('id', session.user.id)
         .single();
       
       setUserProfile(profile);
+      
+      if (profile && profile.onboarding_completed && !profile.dashboard_tour_completed) {
+        setShowTour(true);
+      }
 
       const token = session.access_token;
 
@@ -180,7 +186,7 @@ export default function Home() {
         </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
+      <div id="stats-section" className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
         {loading ? (
           <div className="col-span-4 text-center py-12">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
@@ -273,7 +279,7 @@ export default function Home() {
       )}
 
       {insights && (
-        <div className="mb-10 bg-gradient-to-r from-indigo-50 to-purple-50 rounded-2xl p-6 border border-indigo-200">
+        <div id="ai-insights" className="mb-10 bg-gradient-to-r from-indigo-50 to-purple-50 rounded-2xl p-6 border border-indigo-200">
           <div className="flex items-center gap-3 mb-6">
             <Sparkles className="w-6 h-6 text-indigo-600" />
             <h2 className="text-2xl font-bold text-gray-900">AI Insights - This Month</h2>
@@ -310,7 +316,7 @@ export default function Home() {
         </div>
       )}
 
-      <div className="mb-10">
+      <div id="quick-actions" className="mb-10">
         <h2 className="text-2xl font-bold text-gray-900 mb-6">Quick Actions</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {features.map((feature) => (
@@ -360,6 +366,13 @@ export default function Home() {
           </Link>
         </div>
       </div>
+
+      {showTour && (
+        <DashboardTour onComplete={() => {
+          setShowTour(false);
+          fetchUserStats();
+        }} />
+      )}
     </div>
   );
 }

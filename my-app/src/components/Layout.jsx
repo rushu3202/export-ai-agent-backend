@@ -92,7 +92,7 @@ export default function Layout() {
       </div>
 
       <div className="flex">
-        <aside className={`
+        <aside id="sidebar" className={`
           ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
           lg:translate-x-0 fixed lg:sticky top-0 left-0 z-40 w-64 h-screen
           transition-transform bg-gradient-to-b from-primary to-primary-800 text-white shadow-2xl
