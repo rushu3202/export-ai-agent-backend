@@ -399,6 +399,41 @@ app.get('/api/user-profile', authenticateUser, async (req, res) => {
   }
 });
 
+app.post('/api/complete-onboarding', authenticateUser, async (req, res) => {
+  try {
+    console.log(`[Onboarding] Completing onboarding for user: ${req.user.id}`);
+    
+    const { company_name, company_address, industry, business_type, primary_goal, contact_email } = req.body;
+
+    const { data, error } = await supabase
+      .from('user_profiles')
+      .update({
+        company_name,
+        company_address,
+        industry,
+        business_type,
+        primary_goal,
+        contact_email,
+        onboarding_completed: true,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', req.user.id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('[Onboarding] Update error:', error);
+      throw error;
+    }
+
+    console.log(`[Onboarding] Successfully completed for user: ${req.user.id}`);
+    res.json({ success: true, profile: data });
+  } catch (error) {
+    console.error('[Onboarding] Error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 async function getHSCode(description) {
   if (!openai) return "000000";
   try {

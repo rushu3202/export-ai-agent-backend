@@ -5,11 +5,14 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from '../supabaseClient';
 import Footer from './Footer';
 import CrispChat from './CrispChat';
+import Onboarding from './Onboarding';
+import axios from 'axios';
 
 export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [user, setUser] = useState(null);
   const [userProfile, setUserProfile] = useState(null);
+  const [showOnboarding, setShowOnboarding] = useState(false);
 
   const location = useLocation();
 
@@ -17,32 +20,41 @@ export default function Layout() {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
       if (session?.user) {
-        fetchUserProfile(session.user.id);
+        fetchUserProfile();
       }
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
       if (session?.user) {
-        fetchUserProfile(session.user.id);
+        fetchUserProfile();
       }
     });
 
     return () => subscription.unsubscribe();
   }, []);
 
-  const fetchUserProfile = async (userId) => {
+  const fetchUserProfile = async () => {
     try {
-      const { data } = await supabase
-        .from('user_profiles')
-        .select('subscription_status')
-        .eq('user_id', userId)
-        .single();
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+
+      const response = await axios.get('/api/user-profile', {
+        headers: { Authorization: `Bearer ${session.access_token}` }
+      });
+      setUserProfile(response.data);
       
-      setUserProfile(data);
+      if (response.data && !response.data.onboarding_completed) {
+        setShowOnboarding(true);
+      }
     } catch (error) {
       console.error('Error fetching user profile:', error);
     }
+  };
+
+  const handleOnboardingComplete = () => {
+    setShowOnboarding(false);
+    fetchUserProfile();
   };
 
   const handleLogout = async () => {
@@ -175,6 +187,9 @@ export default function Layout() {
         </main>
       </div>
       <CrispChat />
+      {showOnboarding && (
+        <Onboarding onComplete={handleOnboardingComplete} user={user} />
+      )}
     </div>
   );
 }
