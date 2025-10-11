@@ -19,12 +19,15 @@ The platform is built with a React frontend and a Node.js/Express backend.
 - **Subscription & Billing**: Integrated with Stripe for subscription plans (Free/Pro), checkout flows, and customer portal management, with webhook integration for status updates.
 - **Database**: Supabase PostgreSQL handles data persistence for user profiles, invoices, export forms, chat history, and shipments, enforced with Row Level Security (RLS).
 - **Key Features**:
-    - **Dashboard**: Displays user-specific statistics.
-    - **Invoice Generator**: Creates professional PDF invoices with AI-assigned HS codes.
-    - **Export Forms Assistant**: AI-guided completion for various export forms (Shipping Bills, Bill of Lading, etc.).
-    - **AI Chat Assistant**: An OpenAI GPT-4-mini powered expert for trade advice.
+    - **Dashboard**: Displays user-specific statistics with AI Insights (monthly metrics, top clients, export value).
+    - **Invoice Generator**: Creates professional PDF invoices with AI-assigned HS codes, auto-fill from contacts, and AI product description suggestions.
+    - **Export Document Generator**: AI-guided completion and PDF generation for 4 export forms (Shipping Bill, Bill of Lading, Packing List, Certificate of Origin) with contact auto-fill.
+    - **AI Chat Assistant**: OpenAI GPT-4-mini powered expert for trade advice with quick action buttons and country-specific guidance.
+    - **Contacts/CRM**: Manage business contacts with Excel export and integration throughout the platform.
+    - **HS Code Finder**: AI-powered harmonized system code search and assignment.
+    - **Invoice History**: Track and search all generated invoices with advanced filtering.
     - **Shipment Tracker**: Provides real-time international shipment updates.
-    - **Profile & Billing Page**: Manages user subscriptions and billing.
+    - **Profile & Billing Page**: Manages user subscriptions and billing via Stripe.
 - **Technical Implementations**:
     - Frontend: React 18, React Router, Vite, Axios.
     - Backend: Node.js, Express 5, PDFKit for document generation, RESTful API.
