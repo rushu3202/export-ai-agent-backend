@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../supabaseClient';
+import CrispChat from '../components/CrispChat';
 
 export default function Landing() {
   const navigate = useNavigate();
@@ -531,6 +532,7 @@ export default function Landing() {
           </div>
         </div>
       </footer>
+      <CrispChat />
     </div>
   );
 }

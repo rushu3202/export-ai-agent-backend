@@ -38,3 +38,23 @@ The platform is built with a React frontend and a Node.js/Express backend.
 - **Supabase**: Provides authentication services and PostgreSQL database hosting.
 - **Stripe**: Handles all payment processing, subscription management, and customer billing portals.
 - **OpenAI**: Powers AI features such as HS code assignment, expert chat assistance (GPT-4-mini), and AI-guided form filling.
+- **Crisp Chat**: Live chat widget for 24/7 customer support (requires setup - see Configuration below).
+
+## Recent Updates - Sprint 1: Marketing & Conversion
+### High-Converting Landing Page (October 2025)
+- **Professional Landing Page**: Animated hero section with ship + world map animations, clear USP
+- **Conversion Elements**: Multiple CTAs (Start Free, Book Demo, Upgrade), trust badges, testimonials
+- **Trust & Security**: Stats display (10,000+ users, 150+ countries), partner logos, verified company info
+- **Company Footer**: EXPORTAGENT LTD details, company number, address, contact information
+- **Routing Update**: "/" = public landing, "/app/*" = authenticated app, "/login" = authentication
+- **Live Chat Integration**: Crisp Chat widget on all pages for customer support
+
+## Configuration Required
+### Crisp Chat Setup
+1. Sign up for Crisp Chat at https://crisp.chat (free tier available)
+2. Get your CRISP_WEBSITE_ID from the Crisp dashboard
+3. Update `my-app/src/components/CrispChat.jsx`:
+   ```javascript
+   window.CRISP_WEBSITE_ID = "YOUR_CRISP_WEBSITE_ID"; // Replace with your actual ID
+   ```
+4. The chat widget will appear on all pages (landing + authenticated app)

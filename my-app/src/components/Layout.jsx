@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from '../supabaseClient';
 import Footer from './Footer';
+import CrispChat from './CrispChat';
 
 export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -173,6 +174,7 @@ export default function Layout() {
           <Footer />
         </main>
       </div>
+      <CrispChat />
     </div>
   );
 }
