@@ -168,6 +168,59 @@ async function authenticateUser(req, res, next) {
   }
 }
 
+// Validation Middleware
+function validateContact(req, res, next) {
+  const { name, email, phone, company, type } = req.body;
+  const errors = [];
+  
+  if (!name || !name.trim()) errors.push('Name is required');
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) errors.push('Invalid email format');
+  if (phone && !/^[\d\s\-\+\(\)]+$/.test(phone)) errors.push('Invalid phone format');
+  if (!type || !['buyer', 'supplier'].includes(type)) errors.push('Invalid contact type');
+  
+  if (errors.length > 0) {
+    return res.status(400).json({ error: 'Validation failed', details: errors });
+  }
+  next();
+}
+
+function validateInvoice(req, res, next) {
+  const { sellerName, buyerName, items, currency } = req.body;
+  const errors = [];
+  
+  if (!sellerName || !sellerName.trim()) errors.push('Seller name is required');
+  if (!buyerName || !buyerName.trim()) errors.push('Buyer name is required');
+  if (!items || !Array.isArray(items) || items.length === 0) errors.push('At least one item is required');
+  if (!currency || !currency.trim()) errors.push('Currency is required');
+  
+  items?.forEach((item, i) => {
+    if (!item.description?.trim()) errors.push(`Item ${i+1}: Description is required`);
+    if (!item.qty || item.qty <= 0) errors.push(`Item ${i+1}: Quantity must be positive`);
+    if (item.unitPrice === undefined || item.unitPrice < 0) errors.push(`Item ${i+1}: Valid unit price required`);
+  });
+  
+  if (errors.length > 0) {
+    return res.status(400).json({ error: 'Validation failed', details: errors });
+  }
+  next();
+}
+
+function validateListing(req, res, next) {
+  const { title, description, category, price, quantity } = req.body;
+  const errors = [];
+  
+  if (!title || !title.trim() || title.length < 5) errors.push('Title must be at least 5 characters');
+  if (!description || !description.trim() || description.length < 20) errors.push('Description must be at least 20 characters');
+  if (!category || !category.trim()) errors.push('Category is required');
+  if (price === undefined || price < 0) errors.push('Valid price is required');
+  if (quantity === undefined || quantity < 0) errors.push('Valid quantity is required');
+  
+  if (errors.length > 0) {
+    return res.status(400).json({ error: 'Validation failed', details: errors });
+  }
+  next();
+}
+
 // Usage Tier Checking Helper
 async function checkTierAndIncrement(userId, action) {
   try {
@@ -524,7 +577,7 @@ async function getHSCode(description) {
   }
 }
 
-app.post('/generate-invoice', authenticateUser, async (req, res) => {
+app.post('/generate-invoice', authenticateUser, validateInvoice, async (req, res) => {
   try {
     const tierCheck = await checkTierAndIncrement(req.user.id, 'docs');
     
@@ -923,7 +976,7 @@ app.get('/api/contacts', authenticateUser, async (req, res) => {
   }
 });
 
-app.post('/api/contacts', authenticateUser, async (req, res) => {
+app.post('/api/contacts', authenticateUser, validateContact, async (req, res) => {
   try {
     const { type, name, company, email, phone, address } = req.body;
     
@@ -950,7 +1003,7 @@ app.post('/api/contacts', authenticateUser, async (req, res) => {
   }
 });
 
-app.put('/api/contacts/:id', authenticateUser, async (req, res) => {
+app.put('/api/contacts/:id', authenticateUser, validateContact, async (req, res) => {
   try {
     const { id } = req.params;
     const { type, name, company, email, phone, address } = req.body;
@@ -1551,7 +1604,7 @@ app.get('/api/marketplace/listings/:id', async (req, res) => {
 });
 
 // Create new listing
-app.post('/api/marketplace/listings', authenticateUser, async (req, res) => {
+app.post('/api/marketplace/listings', authenticateUser, validateListing, async (req, res) => {
   try {
     const { title, description, category, price, currency, country, hs_code, moq, image_url } = req.body;
     
@@ -1583,7 +1636,7 @@ app.post('/api/marketplace/listings', authenticateUser, async (req, res) => {
 });
 
 // Update listing
-app.put('/api/marketplace/listings/:id', authenticateUser, async (req, res) => {
+app.put('/api/marketplace/listings/:id', authenticateUser, validateListing, async (req, res) => {
   try {
     const { id } = req.params;
     const { title, description, category, price, currency, country, hs_code, moq, image_url, is_active } = req.body;

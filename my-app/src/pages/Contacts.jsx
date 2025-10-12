@@ -4,8 +4,17 @@ import { supabase } from '../supabaseClient';
 import { useToast } from '../components/Toast';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { TableSkeleton } from '../components/LoadingSkeleton';
+import ValidatedInput, { ValidatedSelect } from '../components/ValidatedInput';
+import { validators, useFormValidation } from '../utils/validation';
 import axios from 'axios';
 import * as XLSX from 'xlsx';
+
+const contactValidationRules = {
+  name: [validators.required, validators.minLength(2)],
+  email: [validators.email],
+  phone: [validators.phone],
+  type: [validators.required]
+};
 
 export default function Contacts() {
   const toast = useToast();
@@ -16,18 +25,24 @@ export default function Contacts() {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState('all');
   const [deleteConfirm, setDeleteConfirm] = useState(null);
-  const [formData, setFormData] = useState({
+  
+  const {
+    values: formData,
+    errors: formErrors,
+    touched,
+    handleChange,
+    handleBlur,
+    validateAll,
+    reset: resetValidation,
+    setValues
+  } = useFormValidation({
     type: 'buyer',
     name: '',
     company: '',
     email: '',
     phone: '',
-    address: {
-      street: '',
-      city: '',
-      country: ''
-    }
-  });
+    address: { street: '', city: '', country: '' }
+  }, contactValidationRules);
 
   useEffect(() => {
     fetchContacts();
@@ -60,6 +75,11 @@ export default function Contacts() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     
+    if (!validateAll()) {
+      toast.warning('Please fix validation errors before submitting');
+      return;
+    }
+    
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
@@ -86,7 +106,11 @@ export default function Contacts() {
       toast.success(editingContact ? 'Contact updated successfully!' : 'Contact added successfully!');
     } catch (error) {
       console.error('Error saving contact:', error);
-      toast.error(error.response?.data?.message || 'Failed to save contact. Please try again.');
+      if (error.response?.data?.details) {
+        error.response.data.details.forEach(msg => toast.error(msg));
+      } else {
+        toast.error(error.response?.data?.message || 'Failed to save contact. Please try again.');
+      }
     }
   };
 
@@ -117,7 +141,7 @@ export default function Contacts() {
 
   const handleEdit = (contact) => {
     setEditingContact(contact);
-    setFormData({
+    setValues({
       type: contact.type,
       name: contact.name,
       company: contact.company || '',
@@ -129,14 +153,7 @@ export default function Contacts() {
   };
 
   const resetForm = () => {
-    setFormData({
-      type: 'buyer',
-      name: '',
-      company: '',
-      email: '',
-      phone: '',
-      address: { street: '', city: '', country: '' }
-    });
+    resetValidation();
   };
 
   const exportToExcel = () => {
@@ -308,85 +325,81 @@ export default function Contacts() {
             </div>
 
             <form onSubmit={handleSubmit} className="p-6 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Type *</label>
-                <select
-                  value={formData.type}
-                  onChange={(e) => setFormData({ ...formData, type: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary focus:border-transparent"
-                  required
-                >
-                  <option value="buyer">Buyer</option>
-                  <option value="supplier">Supplier</option>
-                </select>
-              </div>
+              <ValidatedSelect
+                label="Type"
+                name="type"
+                value={formData.type}
+                onChange={handleChange}
+                onBlur={handleBlur}
+                error={formErrors.type}
+                touched={touched.type}
+                required
+                options={[
+                  { value: 'buyer', label: 'Buyer' },
+                  { value: 'supplier', label: 'Supplier' }
+                ]}
+                placeholder="Select contact type"
+              />
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Name *</label>
-                <input
-                  type="text"
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary focus:border-transparent"
-                  required
-                />
-              </div>
+              <ValidatedInput
+                label="Name"
+                name="name"
+                value={formData.name}
+                onChange={handleChange}
+                onBlur={handleBlur}
+                error={formErrors.name}
+                touched={touched.name}
+                required
+                placeholder="Enter contact name"
+              />
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Company</label>
-                <input
-                  type="text"
-                  value={formData.company}
-                  onChange={(e) => setFormData({ ...formData, company: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary focus:border-transparent"
-                />
-              </div>
+              <ValidatedInput
+                label="Company"
+                name="company"
+                value={formData.company}
+                onChange={handleChange}
+                placeholder="Enter company name (optional)"
+              />
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                <input
-                  type="email"
-                  value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary focus:border-transparent"
-                />
-              </div>
+              <ValidatedInput
+                label="Email"
+                name="email"
+                type="email"
+                value={formData.email}
+                onChange={handleChange}
+                onBlur={handleBlur}
+                error={formErrors.email}
+                touched={touched.email}
+                placeholder="Enter email address"
+              />
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
-                <input
-                  type="tel"
-                  value={formData.phone}
-                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary focus:border-transparent"
-                />
-              </div>
+              <ValidatedInput
+                label="Phone"
+                name="phone"
+                type="tel"
+                value={formData.phone}
+                onChange={handleChange}
+                onBlur={handleBlur}
+                error={formErrors.phone}
+                touched={touched.phone}
+                placeholder="Enter phone number"
+              />
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">City</label>
-                  <input
-                    type="text"
-                    value={formData.address.city}
-                    onChange={(e) => setFormData({ 
-                      ...formData, 
-                      address: { ...formData.address, city: e.target.value }
-                    })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary focus:border-transparent"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Country</label>
-                  <input
-                    type="text"
-                    value={formData.address.country}
-                    onChange={(e) => setFormData({ 
-                      ...formData, 
-                      address: { ...formData.address, country: e.target.value }
-                    })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary focus:border-transparent"
-                  />
-                </div>
+                <ValidatedInput
+                  label="City"
+                  name="address.city"
+                  value={formData.address?.city || ''}
+                  onChange={handleChange}
+                  placeholder="Enter city"
+                />
+                <ValidatedInput
+                  label="Country"
+                  name="address.country"
+                  value={formData.address?.country || ''}
+                  onChange={handleChange}
+                  placeholder="Enter country"
+                />
               </div>
 
               <div className="flex gap-3 pt-4">
