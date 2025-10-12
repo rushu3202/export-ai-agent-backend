@@ -73,8 +73,25 @@ The platform is built with a React frontend and a Node.js/Express backend.
 - Clear CTAs to Pro plan with benefits and pricing
 - Non-blocking modals with "Maybe Later" option
 
-### Pending Audit Tasks (7/10)
-4. Form validation (frontend + backend) with visual error indicators
+**Task 4: Form Validation System** ✅
+- Built comprehensive validation utilities (`validation.js`):
+  - Reusable validators: required, email, phone, minLength, maxLength, pattern, number ranges
+  - useFormValidation custom hook with nested field support (dot notation like "address.city")
+  - Helper functions: setNestedValue/getNestedValue for nested object/array handling
+- Created ValidatedInput component library (ValidatedInput, ValidatedTextarea, ValidatedSelect):
+  - Visual error indicators: red border, AlertCircle icon, error message
+  - Touch state management (shows errors only after blur)
+  - Consistent styling across all forms
+- Backend validation middleware (server.js):
+  - validateContact: Name required, email format, phone format, type validation
+  - validateInvoice: Seller/buyer names, items array, currency, per-item validation
+  - validateListing: Title 5+ chars, description 20+ chars, category, price, quantity
+  - Applied to 5 endpoints: POST/PUT contacts, POST invoice, POST/PUT listings
+  - Returns 400 with `{error, details: []}` for structured error handling
+- Integrated into Contacts form with complete validation flow
+- Frontend/backend validation synchronized for consistent user experience
+
+### Pending Audit Tasks (6/10)
 5. Settings page (company info, currency/language, subscription display)
 6. React error boundary with fallback UI
 7. Reusable UI components library expansion
