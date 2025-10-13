@@ -1,0 +1,133 @@
+🚨 IMPORTANT: My app is currently broken. The dashboard features are not working at all and show blank white pages. An “invalid website” message appears at the bottom right. Nothing is functioning properly.
+
+Here is the full list of problems and what I want fixed:
+
+🐞 Current Issues
+
+Dashboard sections are showing blank white pages
+
+“Invalid website” error shows on the bottom right
+
+Contacts/CRM: fails to load
+
+HS Code Finder: not working
+
+Forms & History: fails to load
+
+Settings: fails to load
+
+No proper error handling or user feedback
+
+UI lacks proper structure or responsive design
+
+🧰 Fixes & Features Required
+1. Global App Structure & Routing
+
+Fix all frontend routes so they correctly render pages:
+
+/app/dashboard
+
+/app/contacts
+
+/app/hs-finder
+
+/app/forms
+
+/app/settings
+
+Ensure React Router is properly configured with error boundaries.
+
+Add a global navigation sidebar or top menu so users can move between features easily.
+
+Ensure protected routes are working — only logged-in users can access these pages.
+
+2. Contacts / CRM Module
+
+Build a fully functional CRM:
+
+Add, edit, delete contacts (name, company, email, phone, address, role: buyer/supplier).
+
+Display contact list in a clean, responsive table or cards.
+
+Show loading states and error messages.
+
+Save all contact data to Supabase.
+
+3. HS Code Finder
+
+Build working search input (product name + country).
+
+Use OpenAI API or a placeholder API to return HS Code and duty rates.
+
+Display results in a table with code, description, and duty %.
+
+Add search history (stored in Supabase).
+
+4. Forms & Document Generator
+
+Fix forms page so user can:
+
+Create commercial invoices, packing lists, and proforma invoices.
+
+View form history in a clean list.
+
+Download generated documents as PDF with company footer.
+
+Fix server.js backend to properly generate PDFs.
+
+5. Settings Page
+
+Add UI to update and save:
+
+Company name, address, VAT number, registration number.
+
+Company logo upload.
+
+Contact email & phone.
+
+Save settings to Supabase.
+
+6. UI/UX Enhancements
+
+Apply consistent branding with EXPORTAGENT LTD colors (modern business theme — blue & white with accents).
+
+Add a clean layout, spacing, and icons for all pages.
+
+Make the platform mobile responsive.
+
+Add proper loading indicators and error toasts/snackbars.
+
+7. Error Handling & Alerts
+
+Fix the “invalid website” issue.
+
+Add global error handler for failed API calls.
+
+Show helpful messages instead of blank pages.
+
+8. Payment Plan Integration (Stripe)
+
+Ensure free users have limited usage (e.g., 5 documents per month).
+
+Pro users get unlimited access.
+
+Add upgrade prompt if free user hits the limit.
+
+9. Testing & Verification
+
+After implementing everything, test each page:
+
+Add contact, edit contact, delete contact.
+
+Search HS code, see results, view history.
+
+Generate and download invoice/packing list.
+
+Update settings, see company info reflected in invoice.
+
+Navigation works smoothly.
+
+Ensure no blank white pages or console errors remain.
+
+🏁 Goal: Make the platform fully functional, stable, visually professional, and ready for real paying users (exporters).
+🎯 Final result: All modules should work end-to-end, navigation should be smooth, UI should look professional, and errors should be handled gracefully.

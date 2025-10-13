@@ -188,7 +188,7 @@ export default function Layout() {
           <Footer />
         </main>
       </div>
-      <CrispChat />
+      {/* <CrispChat /> */}
       {showOnboarding && (
         <Onboarding onComplete={handleOnboardingComplete} user={user} />
       )}
