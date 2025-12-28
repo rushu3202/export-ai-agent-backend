@@ -256,6 +256,10 @@ app.get("/api/reports/:id", (req, res) => {
   res.json(report);
 });
 
+app.get("/healthz", (req, res) => {
+  res.status(200).json({ ok: true });
+});
+
 // Start server
 app.listen(PORT, () => {
   console.log(`🚀 Backend running on http://localhost:${PORT}`);
