@@ -19,6 +19,10 @@ app.get("/", (req, res) => {
   res.json({ status: "Export Agent Backend is running ✅" });
 });
 
+app.get("/api/health", (req, res) => {
+  res.status(200).json({ ok: true, service: "export-ai-agent-backend" });
+});
+
 app.post("/api/export/start", (req, res) => {
   const { country, product } = req.body;
 
