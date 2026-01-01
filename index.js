@@ -1,9 +1,15 @@
+import { createClient } from "@supabase/supabase-js";
 import express from "express";
 import { v4 as uuidv4 } from "uuid";
 import cors from "cors";
 import dotenv from "dotenv";
 
 dotenv.config();
+
+const supabaseAdmin = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -158,6 +164,22 @@ if (indiaAliases.includes(dest)) {
     "Talk to logistics partner"
   );
 
+  async function requireUser(req) {
+  const auth = req.headers.authorization || "";
+  const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
+
+  if (!token) {
+    return { error: "Missing Authorization token" };
+  }
+
+  const { data, error } = await supabaseAdmin.auth.getUser(token);
+  if (error || !data?.user) {
+    return { error: "Invalid or expired token" };
+  }
+
+  return { user: data.user, token };
+}
+
   // ---- HS Code Assistant (v1: rule-based) ----
 const p = product.trim().toLowerCase();
 
@@ -201,6 +223,42 @@ response.hs_code_suggestions = hsSuggestions;
 // ------------------- Reports API (v1) -------------------
 
 // Save a report
+app.post("/api/reports", async (req, res) => {
+  const auth = await requireUser(req);
+  if (auth.error) return res.status(401).json({ error: auth.error });
+
+  const { product, country, experience, result, lockedHs } = req.body;
+
+  if (!product || !country || !experience || !result || !lockedHs?.code) {
+    return res.status(400).json({ error: "Missing required report data" });
+  }
+
+  const row = {
+    user_id: auth.user.id,
+    email: auth.user.email, // optional, helpful for admin
+    product,
+    country,
+    experience,
+    hs_code: lockedHs.code,
+    hs_description: lockedHs.description || "",
+    risk_level: result.risk_level || "",
+    incoterm: result.recommended_incoterm || "",
+    journey_stage: result.journey_stage || "",
+    result_json: result, // store full JSON
+    created_at: new Date().toISOString(),
+  };
+
+  const { data, error } = await supabaseAdmin
+    .from("export_reports")
+    .insert(row)
+    .select("id")
+    .single();
+
+  if (error) return res.status(500).json({ error: error.message });
+
+  res.json({ ok: true, reportId: data.id });
+});
+
 app.post("/api/reports", (req, res) => {
   const { product, country, experience, result, lockedHs } = req.body;
 
@@ -235,6 +293,39 @@ app.post("/api/reports", (req, res) => {
 });
 
 // List reports (latest first)
+app.get("/api/reports", async (req, res) => {
+  const auth = await requireUser(req);
+  if (auth.error) return res.status(401).json({ error: auth.error });
+
+  const { data, error } = await supabaseAdmin
+    .from("export_reports")
+    .select("id, product, country, experience, hs_code, risk_level, incoterm, journey_stage, created_at")
+    .eq("user_id", auth.user.id)
+    .order("created_at", { ascending: false })
+    .limit(50);
+
+  if (error) return res.status(500).json({ error: error.message });
+
+  res.json({ ok: true, reports: data });
+});
+app.get("/api/reports/:id", async (req, res) => {
+  const auth = await requireUser(req);
+  if (auth.error) return res.status(401).json({ error: auth.error });
+
+  const { id } = req.params;
+
+  const { data, error } = await supabaseAdmin
+    .from("export_reports")
+    .select("*")
+    .eq("id", id)
+    .eq("user_id", auth.user.id)
+    .single();
+
+  if (error) return res.status(404).json({ error: "Report not found" });
+
+  res.json({ ok: true, report: data });
+});
+
 app.get("/api/reports", (req, res) => {
   res.json({
     count: REPORTS.length,
