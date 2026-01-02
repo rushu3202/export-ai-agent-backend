@@ -239,6 +239,27 @@ app.post("/api/reports", async (req, res) => {
   res.json({ ok: true, reportId: data.id });
 });
 
+// DELETE a report
+app.delete("/api/reports/:id", async (req, res) => {
+  const auth = await requireUser(req);
+  if (auth.error) return res.status(401).json({ error: auth.error });
+
+  const { id } = req.params;
+
+  const { data, error } = await supabaseAdmin
+    .from("export_reports")
+    .delete()
+    .eq("id", id)
+    .eq("user_id", auth.user.id)
+    .select("id")
+    .single();
+
+  if (error) return res.status(500).json({ error: error.message });
+  if (!data) return res.status(404).json({ error: "Report not found" });
+
+  res.json({ ok: true, deletedId: data.id });
+});
+
 // List reports (latest first)
 app.get("/api/reports", async (req, res) => {
   const auth = await requireUser(req);
