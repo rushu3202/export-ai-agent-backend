@@ -214,19 +214,18 @@ app.post("/api/reports", async (req, res) => {
   }
 
   const row = {
-    user_id: auth.user.id,
-    email: auth.user.email || null, // optional
-    product,
-    country,
-    experience,
-    hs_code: lockedHs.code,
-    hs_description: lockedHs.description || "",
-    risk_level: result.risk_level || "",
-    incoterm: result.recommended_incoterm || "",
-    journey_stage: result.journey_stage || "",
-    result_json: result, // store full JSON
-    created_at: new Date().toISOString(),
-  };
+  user_id: auth.user.id,
+  email: auth.user.email,
+  product,
+  country,
+  experience,
+  hs_code: lockedHs.code,
+  hs_description: lockedHs.description || "",
+  risk_level: result.risk_level || "",
+  incoterm: result.recommended_incoterm || "",
+  journey_stage: result.journey_stage || "",
+  result: result, // ✅ matches your table
+};
 
   const { data, error } = await supabaseAdmin
     .from("export_reports")
