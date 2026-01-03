@@ -18,6 +18,7 @@ const supabaseAdmin = createClient(
 // ---- CORS ----
 // Add your Vercel domain(s) in env if you want strict CORS.
 // Example: CORS_ORIGINS="https://export-ai-agent-frontend-live.vercel.app,https://export-ai-agent-frontend-live-xxx.vercel.app"
+// ---- CORS ----
 const allowedOrigins = (process.env.CORS_ORIGINS || "")
   .split(",")
   .map((s) => s.trim())
@@ -25,12 +26,26 @@ const allowedOrigins = (process.env.CORS_ORIGINS || "")
 
 app.use(
   cors({
-    origin: allowedOrigins.length ? allowedOrigins : true,
+    origin: function (origin, callback) {
+      // allow server-to-server / curl / Postman (no origin)
+      if (!origin) return callback(null, true);
+
+      // allow all if CORS_ORIGINS not set
+      if (!allowedOrigins.length) return callback(null, true);
+
+      // allow only listed origins
+      if (allowedOrigins.includes(origin)) return callback(null, true);
+
+      return callback(new Error("Not allowed by CORS: " + origin));
+    },
     credentials: true,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
 
-app.use(express.json({ limit: "1mb" }));
+// ✅ MUST handle preflight
+app.options("*", cors());
 
 // ----------------- Health -----------------
 app.get("/", (req, res) => {
