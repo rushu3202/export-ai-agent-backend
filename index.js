@@ -1,51 +1,39 @@
 import express from "express";
 import cors from "cors";
-
-app.use(
-  cors({
-    origin: true, // ✅ allow all origins
-    credentials: true,
-  })
-);
-
-app.options("*", cors()); // ✅ preflight
 import dotenv from "dotenv";
 import { createClient } from "@supabase/supabase-js";
 import { v4 as uuidv4 } from "uuid";
 
 dotenv.config();
 
+// ✅ 1) Initialize app FIRST
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// ---- Supabase Admin (Service Role) ----
+// ✅ 2) Supabase Admin
 const supabaseAdmin = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-// ---- CORS ----
-// Add your Vercel domain(s) in env if you want strict CORS.
-// Example: CORS_ORIGINS="https://export-ai-agent-frontend-live.vercel.app,https://export-ai-agent-frontend-live-xxx.vercel.app"
-// ---- CORS ----
+// ✅ 3) Parse CORS origins from env
 const allowedOrigins = (process.env.CORS_ORIGINS || "")
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);
 
+// ✅ 4) CORS middleware (supports Vercel + preflight)
 app.use(
   cors({
-    origin: function (origin, callback) {
-      // allow server-to-server / curl / Postman (no origin)
-      if (!origin) return callback(null, true);
+    origin: (origin, cb) => {
+      // allow requests with no origin (Postman, server-to-server)
+      if (!origin) return cb(null, true);
 
-      // allow all if CORS_ORIGINS not set
-      if (!allowedOrigins.length) return callback(null, true);
+      // if env not set, allow all (temporary safe mode)
+      if (!allowedOrigins.length) return cb(null, true);
 
-      // allow only listed origins
-      if (allowedOrigins.includes(origin)) return callback(null, true);
-
-      return callback(new Error("Not allowed by CORS: " + origin));
+      if (allowedOrigins.includes(origin)) return cb(null, true);
+      return cb(new Error(`CORS blocked: ${origin}`));
     },
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
@@ -55,6 +43,9 @@ app.use(
 
 // ✅ MUST handle preflight
 app.options("*", cors());
+
+// ✅ 5) Body parsing AFTER CORS (fine)
+app.use(express.json({ limit: "1mb" }));
 
 // ----------------- Health -----------------
 app.get("/", (req, res) => {
@@ -196,7 +187,6 @@ app.post("/api/export-check", (req, res) => {
     response.hs_code_suggestions.push({ code, description, confidence });
   };
 
-  // clothing
   if (p.includes("t-shirt") || p.includes("tshirt") || p.includes("tee")) {
     addHS("6109", "T-shirts, singlets and other vests (knitted or crocheted)", "HIGH");
   }
@@ -204,18 +194,15 @@ app.post("/api/export-check", (req, res) => {
     addHS("6205", "Men’s or boys’ shirts (not knitted)", "MEDIUM");
   }
 
-  // food
   if (p.includes("rice")) addHS("1006", "Rice", "HIGH");
   if (p.includes("spice") || p.includes("masala")) addHS("0910", "Spices (mixed/various)", "MEDIUM");
 
-  // batteries
   if (p.includes("battery") || p.includes("lithium")) {
     addHS("8507", "Electric accumulators (batteries)", "MEDIUM");
     response.warnings.push("Battery shipments may require dangerous goods (DG) checks and special packaging.");
     response.journey_stage = "RESTRICTIONS";
   }
 
-  // note
   response.hs_note =
     response.hs_code_suggestions.length === 0
       ? "No direct HS match found. Add more details (material, use, composition) for better suggestion."
@@ -226,7 +213,6 @@ app.post("/api/export-check", (req, res) => {
 
 // ----------------- Reports API (Supabase DB) -----------------
 
-// Save a report (requires user token)
 app.post("/api/reports", async (req, res) => {
   const auth = await requireUser(req);
   if (auth.error) return res.status(401).json({ error: auth.error });
@@ -238,18 +224,18 @@ app.post("/api/reports", async (req, res) => {
   }
 
   const row = {
-  user_id: auth.user.id,
-  email: auth.user.email,
-  product,
-  country,
-  experience,
-  hs_code: lockedHs.code,
-  hs_description: lockedHs.description || "",
-  risk_level: result.risk_level || "",
-  incoterm: result.recommended_incoterm || "",
-  journey_stage: result.journey_stage || "",
-  result: result, // ✅ matches your table
-};
+    user_id: auth.user.id,
+    email: auth.user.email,
+    product,
+    country,
+    experience,
+    hs_code: lockedHs.code,
+    hs_description: lockedHs.description || "",
+    risk_level: result.risk_level || "",
+    incoterm: result.recommended_incoterm || "",
+    journey_stage: result.journey_stage || "",
+    result: result, // ✅ matches your table column "result"
+  };
 
   const { data, error } = await supabaseAdmin
     .from("export_reports")
@@ -262,7 +248,40 @@ app.post("/api/reports", async (req, res) => {
   res.json({ ok: true, reportId: data.id });
 });
 
-// DELETE a report
+app.get("/api/reports", async (req, res) => {
+  const auth = await requireUser(req);
+  if (auth.error) return res.status(401).json({ error: auth.error });
+
+  const { data, error } = await supabaseAdmin
+    .from("export_reports")
+    .select("id, product, country, experience, hs_code, risk_level, incoterm, journey_stage, created_at")
+    .eq("user_id", auth.user.id)
+    .order("created_at", { ascending: false })
+    .limit(50);
+
+  if (error) return res.status(500).json({ error: error.message });
+
+  res.json({ ok: true, reports: data || [] });
+});
+
+app.get("/api/reports/:id", async (req, res) => {
+  const auth = await requireUser(req);
+  if (auth.error) return res.status(401).json({ error: auth.error });
+
+  const { id } = req.params;
+
+  const { data, error } = await supabaseAdmin
+    .from("export_reports")
+    .select("*")
+    .eq("id", id)
+    .eq("user_id", auth.user.id)
+    .single();
+
+  if (error || !data) return res.status(404).json({ error: "Report not found" });
+
+  res.json({ ok: true, report: data });
+});
+
 app.delete("/api/reports/:id", async (req, res) => {
   const auth = await requireUser(req);
   if (auth.error) return res.status(401).json({ error: auth.error });
@@ -281,42 +300,6 @@ app.delete("/api/reports/:id", async (req, res) => {
   if (!data) return res.status(404).json({ error: "Report not found" });
 
   res.json({ ok: true, deletedId: data.id });
-});
-
-// List reports (latest first)
-app.get("/api/reports", async (req, res) => {
-  const auth = await requireUser(req);
-  if (auth.error) return res.status(401).json({ error: auth.error });
-
-  const { data, error } = await supabaseAdmin
-    .from("export_reports")
-    .select("id, product, country, experience, hs_code, risk_level, incoterm, journey_stage, created_at")
-    .eq("user_id", auth.user.id)
-    .order("created_at", { ascending: false })
-    .limit(50);
-
-  if (error) return res.status(500).json({ error: error.message });
-
-  res.json({ ok: true, reports: data || [] });
-});
-
-// Get one report by id
-app.get("/api/reports/:id", async (req, res) => {
-  const auth = await requireUser(req);
-  if (auth.error) return res.status(401).json({ error: auth.error });
-
-  const { id } = req.params;
-
-  const { data, error } = await supabaseAdmin
-    .from("export_reports")
-    .select("*")
-    .eq("id", id)
-    .eq("user_id", auth.user.id)
-    .single();
-
-  if (error || !data) return res.status(404).json({ error: "Report not found" });
-
-  res.json({ ok: true, report: data });
 });
 
 // ----------------- Start server -----------------
