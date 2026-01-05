@@ -54,8 +54,7 @@ app.use(
 );
 
 // ✅ MUST handle preflight
-app.options("*", cors());export-ai-agent-frontend-live-9kbp3m0pq-rushalees-projects.vercel.app, export-ai-agent-frontend-live.vercel.app
-, export-ai-agent-frontend-live-git-main-rushalees-projects.vercel.app
+app.options("*", cors());
 
 // ----------------- Health -----------------
 app.get("/", (req, res) => {
