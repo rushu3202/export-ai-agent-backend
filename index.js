@@ -1,5 +1,14 @@
 import express from "express";
 import cors from "cors";
+
+app.use(
+  cors({
+    origin: true, // ✅ allow all origins
+    credentials: true,
+  })
+);
+
+app.options("*", cors()); // ✅ preflight
 import dotenv from "dotenv";
 import { createClient } from "@supabase/supabase-js";
 import { v4 as uuidv4 } from "uuid";
@@ -45,7 +54,8 @@ app.use(
 );
 
 // ✅ MUST handle preflight
-app.options("*", cors());
+app.options("*", cors());export-ai-agent-frontend-live-9kbp3m0pq-rushalees-projects.vercel.app, export-ai-agent-frontend-live.vercel.app
+, export-ai-agent-frontend-live-git-main-rushalees-projects.vercel.app
 
 // ----------------- Health -----------------
 app.get("/", (req, res) => {
