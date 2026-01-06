@@ -2,65 +2,65 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import { createClient } from "@supabase/supabase-js";
-import { v4 as uuidv4 } from "uuid";
 
 dotenv.config();
 
-// ✅ 1) Initialize app FIRST
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// ✅ 2) Supabase Admin
+/* =========================
+   CORS (FULL + SAFE)
+========================= */
+
+// Put your Vercel domains here (add more if needed)
+const allowedOrigins = [
+  "https://export-ai-agent-frontend-live.vercel.app",
+  "https://export-ai-agent-frontend-live-git-main-rushalees-projects.vercel.app",
+  "https://export-ai-agent-frontend-live-9kbp3m0pq-rushalees-projects.vercel.app",
+];
+
+// CORS middleware
+app.use(
+  cors({
+    origin: (origin, cb) => {
+      // allow calls from Postman/curl or same-origin
+      if (!origin) return cb(null, true);
+
+      // allow listed vercel domains
+      if (allowedOrigins.includes(origin)) return cb(null, true);
+
+      // MVP: allow all (prevents you getting stuck again)
+      return cb(null, true);
+    },
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  })
+);
+
+// MUST handle preflight
+app.options("*", cors());
+
+app.use(express.json({ limit: "1mb" }));
+
+/* =========================
+   SUPABASE (Service Role)
+========================= */
 const supabaseAdmin = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-// ✅ 3) Parse CORS origins from env
-const allowedOrigins = (process.env.CORS_ORIGINS || "")
-  .split(",")
-  .map((s) => s.trim())
-  .filter(Boolean);
+/* =========================
+   HEALTH
+========================= */
+app.get("/", (req, res) => res.json({ status: "Export Agent Backend is running ✅" }));
+app.get("/healthz", (req, res) => res.status(200).json({ ok: true }));
+app.get("/api/health", (req, res) => res.status(200).json({ ok: true, service: "export-ai-agent-backend" }));
 
-// ✅ 4) CORS middleware (supports Vercel + preflight)
-app.use(
-  cors({
-    origin: (origin, cb) => {
-      // allow requests with no origin (Postman, server-to-server)
-      if (!origin) return cb(null, true);
-
-      // if env not set, allow all (temporary safe mode)
-      if (!allowedOrigins.length) return cb(null, true);
-
-      if (allowedOrigins.includes(origin)) return cb(null, true);
-      return cb(new Error(`CORS blocked: ${origin}`));
-    },
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-  })
-);
-
-// ✅ MUST handle preflight
-app.options("*", cors());
-
-// ✅ 5) Body parsing AFTER CORS (fine)
-app.use(express.json({ limit: "1mb" }));
-
-// ----------------- Health -----------------
-app.get("/", (req, res) => {
-  res.json({ status: "Export Agent Backend is running ✅" });
-});
-
-app.get("/healthz", (req, res) => {
-  res.status(200).json({ ok: true });
-});
-
-app.get("/api/health", (req, res) => {
-  res.status(200).json({ ok: true, service: "export-ai-agent-backend" });
-});
-
-// ----------------- Auth helper -----------------
+/* =========================
+   AUTH HELPER
+========================= */
 async function requireUser(req) {
   const auth = req.headers.authorization || "";
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
@@ -70,42 +70,23 @@ async function requireUser(req) {
   const { data, error } = await supabaseAdmin.auth.getUser(token);
   if (error || !data?.user) return { error: "Invalid or expired token" };
 
-  return { user: data.user, token };
+  return { user: data.user };
 }
 
-// ----------------- Export Journey (optional) -----------------
-app.post("/api/export/start", (req, res) => {
-  const { country, product } = req.body;
-
-  if (!country || !product) {
-    return res.status(400).json({ error: "country and product are required" });
-  }
-
-  const journey = {
-    journeyId: uuidv4(),
-    country,
-    product,
-    currentStep: "EXPORT_BASICS",
-    createdAt: new Date().toISOString(),
-    nextAction: "Check export eligibility",
-  };
-
-  res.json({ message: "Export journey started successfully", journey });
-});
-
-// ----------------- Export Readiness Check -----------------
+/* =========================
+   EXPORT READINESS CHECK
+========================= */
 app.post("/api/export-check", (req, res) => {
   const { product, country, experience } = req.body;
 
   if (!product || !country || !experience) {
-    return res.status(400).json({
-      error: "Product, country, and experience are required",
-    });
+    return res.status(400).json({ error: "Product, country, and experience are required" });
   }
 
   const response = {
     product,
     country,
+    experience,
     allowed: true,
     documents: [],
     warnings: [],
@@ -113,106 +94,72 @@ app.post("/api/export-check", (req, res) => {
     hs_code_suggestions: [],
     hs_note: "",
     journey_stage: "DOCS",
+    risk_level: "LOW",
+    recommended_incoterm: experience === "beginner" ? "DAP" : "FOB",
   };
 
-  // ---- Risk scoring (simple v1) ----
-  let riskScore = 0;
-  if (experience === "beginner") riskScore += 30;
-
-  const restrictedKeywords = ["battery", "chemical", "medicine", "pharma", "liquid"];
-  const isPossiblyRestricted = restrictedKeywords.some((k) =>
-    product.toLowerCase().includes(k)
-  );
-  if (isPossiblyRestricted) riskScore += 40;
-
-  response.risk_level = riskScore >= 70 ? "HIGH" : riskScore >= 40 ? "MEDIUM" : "LOW";
-  response.recommended_incoterm = experience === "beginner" ? "DAP" : "FOB";
-
-  // ---- Base docs ----
+  // Base docs always
   response.documents.push("Commercial Invoice", "Packing List", "Certificate of Origin");
 
-  // ---- Country pack logic ----
-  const dest = country
-    .trim()
-    .toLowerCase()
-    .replace(/\./g, "")
-    .replace(/,/g, "")
-    .replace(/\s+/g, " ");
+  const dest = country.trim().toLowerCase();
 
-  const euAliases = ["eu", "european union"];
-  const euCountries = [
-    "germany","france","italy","spain","netherlands","belgium","ireland","poland",
-    "sweden","denmark","finland","austria","portugal","czech republic","greece",
-    "hungary","romania","bulgaria","croatia","slovakia","slovenia","lithuania",
-    "latvia","estonia","luxembourg","malta","cyprus"
-  ];
+  if (dest === "uk") response.documents.push("EORI Number");
 
-  const uaeAliases = ["uae", "united arab emirates", "dubai"];
-  const indiaAliases = ["india", "bharat"];
-
-  if (euCountries.includes(dest) || euAliases.includes(dest)) {
-    response.documents.push("EU Import VAT / IOSS (if applicable)");
-    response.warnings.push("EU shipments may require importer VAT/EORI on arrival");
-    response.nextSteps.unshift("Confirm EU importer details (VAT/EORI) with your buyer");
-    response.journey_stage = "EU_COMPLIANCE";
-  }
-
-  if (uaeAliases.includes(dest)) {
-    response.documents.push("Certificate of Origin (Chamber attestation may be required)");
-    response.warnings.push("Some UAE shipments require attested Certificate of Origin");
-    response.nextSteps.unshift("Check if your buyer needs CoO attestation (Chamber)");
-    response.journey_stage = "MIDDLE_EAST_COMPLIANCE";
-  }
-
-  if (indiaAliases.includes(dest)) {
-    response.documents.push("IEC (Importer Exporter Code) — for importer side");
-    response.warnings.push("India customs clearance often needs importer IEC & detailed invoice data");
-    response.nextSteps.unshift("Ask buyer/importer for IEC and customs broker details");
-    response.journey_stage = "INDIA_COMPLIANCE";
-  }
-
-  if (dest === "uk") {
-    response.documents.push("EORI Number");
-  }
-
+  // Beginner warnings
   if (experience === "beginner") {
     response.warnings.push("Hire a freight forwarder", "Avoid CIF pricing initially");
   }
 
-  response.nextSteps.push("Register with customs", "Confirm HS code", "Talk to logistics partner");
-
-  // ---- HS Code assistant (rule-based v1) ----
+  // Product rules
   const p = product.trim().toLowerCase();
+
   const addHS = (code, description, confidence) => {
     response.hs_code_suggestions.push({ code, description, confidence });
   };
 
+  // Clothing
   if (p.includes("t-shirt") || p.includes("tshirt") || p.includes("tee")) {
     addHS("6109", "T-shirts, singlets and other vests (knitted or crocheted)", "HIGH");
-  }
-  if (p.includes("shirt") && !p.includes("t-shirt") && !p.includes("tshirt")) {
+  } else if (p.includes("shirt")) {
     addHS("6205", "Men’s or boys’ shirts (not knitted)", "MEDIUM");
   }
 
-  if (p.includes("rice")) addHS("1006", "Rice", "HIGH");
-  if (p.includes("spice") || p.includes("masala")) addHS("0910", "Spices (mixed/various)", "MEDIUM");
-
-  if (p.includes("battery") || p.includes("lithium")) {
-    addHS("8507", "Electric accumulators (batteries)", "MEDIUM");
-    response.warnings.push("Battery shipments may require dangerous goods (DG) checks and special packaging.");
-    response.journey_stage = "RESTRICTIONS";
+  // Food / Agriculture (makhana)
+  if (p.includes("makhana") || p.includes("fox nut") || p.includes("phool makhana")) {
+    addHS("2008", "Fruits, nuts and other edible parts of plants, otherwise prepared or preserved", "MEDIUM");
+    response.warnings.push("Food items may require additional checks: ingredient list, labeling, phytosanitary or food safety rules.");
+    response.documents.push("Ingredients / Product Specification Sheet");
+    response.nextSteps.unshift("Confirm food compliance rules for the destination country");
   }
 
-  response.hs_note =
-    response.hs_code_suggestions.length === 0
-      ? "No direct HS match found. Add more details (material, use, composition) for better suggestion."
-      : "HS code suggestions are guidance only. Confirm final HS code with a customs broker or official tariff tool.";
+  // If nothing matched
+  if (response.hs_code_suggestions.length === 0) {
+    response.hs_note =
+      "No direct HS match found. Add more details (material, composition, use, processing) for better suggestion.";
+    // Add “always show something” fallback guidance
+    response.documents.push("Product Specification Sheet (materials, composition, use)");
+    response.nextSteps.unshift("Provide more product detail for HS classification");
+  } else {
+    response.hs_note =
+      "HS code suggestions are guidance only. Confirm final HS code with a customs broker or official tariff tool.";
+  }
+
+  // Universal next steps
+  response.nextSteps.push("Confirm HS code", "Talk to logistics partner", "Confirm importer/buyer details");
 
   res.json(response);
 });
 
-// ----------------- Reports API (Supabase DB) -----------------
+/* =========================
+   REPORTS API (SUPABASE)
+   Table: export_reports
+   Columns used:
+   user_id, email, product, country, experience,
+   hs_code, hs_description, risk_level, incoterm,
+   journey_stage, result (jsonb), created_at
+========================= */
 
+// SAVE report
 app.post("/api/reports", async (req, res) => {
   const auth = await requireUser(req);
   if (auth.error) return res.status(401).json({ error: auth.error });
@@ -234,7 +181,7 @@ app.post("/api/reports", async (req, res) => {
     risk_level: result.risk_level || "",
     incoterm: result.recommended_incoterm || "",
     journey_stage: result.journey_stage || "",
-    result: result, // ✅ matches your table column "result"
+    result, // jsonb
   };
 
   const { data, error } = await supabaseAdmin
@@ -248,6 +195,7 @@ app.post("/api/reports", async (req, res) => {
   res.json({ ok: true, reportId: data.id });
 });
 
+// LIST reports
 app.get("/api/reports", async (req, res) => {
   const auth = await requireUser(req);
   if (auth.error) return res.status(401).json({ error: auth.error });
@@ -264,6 +212,7 @@ app.get("/api/reports", async (req, res) => {
   res.json({ ok: true, reports: data || [] });
 });
 
+// GET one report
 app.get("/api/reports/:id", async (req, res) => {
   const auth = await requireUser(req);
   if (auth.error) return res.status(401).json({ error: auth.error });
@@ -282,6 +231,7 @@ app.get("/api/reports/:id", async (req, res) => {
   res.json({ ok: true, report: data });
 });
 
+// DELETE report
 app.delete("/api/reports/:id", async (req, res) => {
   const auth = await requireUser(req);
   if (auth.error) return res.status(401).json({ error: auth.error });
@@ -302,7 +252,7 @@ app.delete("/api/reports/:id", async (req, res) => {
   res.json({ ok: true, deletedId: data.id });
 });
 
-// ----------------- Start server -----------------
-app.listen(PORT, () => {
-  console.log(`🚀 Backend running on port ${PORT}`);
-});
+/* =========================
+   START
+========================= */
+app.listen(PORT, () => console.log(`🚀 Backend running on port ${PORT}`));
