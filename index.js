@@ -183,6 +183,9 @@ app.post("/api/reports", async (req, res) => {
     incoterm: result.recommended_incoterm || "",
     journey_stage: result.journey_stage || "",
     result, // jsonb column
+    country_rules: [],
+compliance_checklist: [],
+official_links: [],
   };
 
   const { data, error } = await supabaseAdmin
@@ -237,6 +240,47 @@ if (dest === "uk" && isFood) {
   addCheck("Confirm packaging is food-safe and sealed properly.");
 
   addLink("UK Food labeling guidance (overview)", "https://www.gov.uk/food-labelling-and-packaging");
+}
+
+// ------------------ UK Rules Pack (UK-first) ------------------
+const addRule = (title, detail) => response.country_rules.push({ title, detail });
+const addCheck = (item) => response.compliance_checklist.push(item);
+const addLink = (label, url) => response.official_links.push({ label, url });
+
+const dest = country.trim().toLowerCase();
+
+const foodKeywords = ["makhana", "fox nut", "phool makhana", "spice", "masala", "snack", "food", "nuts", "dry fruit"];
+const isFood = foodKeywords.some((k) => product.toLowerCase().includes(k));
+
+if (dest === "uk") {
+  addRule("Importer of Record", "Confirm who acts as Importer of Record in the UK (buyer, agent, or broker).");
+  addRule("Tariff & Duties", "Duties/VAT depend on HS code and origin. Confirm using the UK Trade Tariff.");
+  addRule("Invoice accuracy", "Commercial invoice must match packing list and include correct HS code, incoterm, values, origin.");
+
+  addCheck("Confirm Importer of Record (buyer or broker).");
+  addCheck("Confirm final HS code using an official tariff tool/broker.");
+  addCheck("Prepare Commercial Invoice (values, incoterm, HS, origin, currency).");
+  addCheck("Prepare Packing List (weights, cartons, dimensions, item breakdown).");
+  addCheck("Confirm EORI details (usually importer).");
+
+  addLink("UK Trade Tariff (duty lookup by HS)", "https://www.trade-tariff.service.gov.uk/");
+  addLink("GOV.UK: Import goods into the UK", "https://www.gov.uk/import-goods-into-uk");
+}
+
+if (dest === "uk" && isFood) {
+  response.journey_stage = "UK_FOOD_COMPLIANCE";
+
+  addRule("Food labeling", "Ensure labels meet UK requirements (ingredients, allergens, net weight, dates, importer details).");
+  addRule("Ingredients & allergens", "Keep a clear ingredient list + allergen statement + spec sheet.");
+  addRule("Food safety checks", "Some foods require extra checks depending on origin/category. Confirm with broker/buyer.");
+
+  addCheck("Prepare Ingredients / Product Specification Sheet.");
+  addCheck("Prepare label info: ingredients, allergens, net weight, dates, importer details.");
+  addCheck("Confirm if any health/phytosanitary certificates are needed.");
+  addCheck("Use food-safe packaging and sealed cartons.");
+
+  addLink("GOV.UK: Food labelling & packaging", "https://www.gov.uk/food-labelling-and-packaging");
+  addLink("Food Standards Agency (UK)", "https://www.food.gov.uk/");
 }
 
   res.json({ ok: true, reportId: data.id });
