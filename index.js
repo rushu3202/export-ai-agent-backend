@@ -97,6 +97,9 @@ app.post("/api/export-check", (req, res) => {
     journey_stage: "DOCS",
     risk_level: "LOW",
     recommended_incoterm: experience === "beginner" ? "DAP" : "FOB",
+    compliance_checklist: [],
+country_rules: [],
+official_links: [],
   };
 
   // Base docs always
@@ -240,6 +243,26 @@ if (dest === "uk" && isFood) {
   addCheck("Confirm packaging is food-safe and sealed properly.");
 
   addLink("UK Food labeling guidance (overview)", "https://www.gov.uk/food-labelling-and-packaging");
+}
+const pushRule = (title, detail) => response.country_rules.push({ title, detail });
+const pushCheck = (item) => response.compliance_checklist.push(item);
+const pushLink = (label, url) => response.official_links.push({ label, url });
+
+const dest2 = country.trim().toLowerCase();
+
+if (dest2 === "uk") {
+  pushRule("Importer of Record", "Confirm who acts as Importer of Record in the UK (buyer, agent, or broker).");
+  pushRule("Tariff & Duties", "Duties/VAT depend on HS code and origin. Confirm using the UK Trade Tariff.");
+  pushRule("Invoice accuracy", "Invoice must match packing list and include HS, incoterm, values, origin, currency.");
+
+  pushCheck("Confirm Importer of Record (buyer or broker).");
+  pushCheck("Confirm final HS code using a tariff tool or broker.");
+  pushCheck("Prepare Commercial Invoice (HS, incoterm, values, origin, currency).");
+  pushCheck("Prepare Packing List (weights, cartons, dimensions).");
+  pushCheck("Confirm EORI details (usually importer).");
+
+  pushLink("UK Trade Tariff (duty lookup)", "https://www.trade-tariff.service.gov.uk/");
+  pushLink("Import goods into the UK (GOV.UK)", "https://www.gov.uk/import-goods-into-uk");
 }
 
   res.json({ ok: true, reportId: data.id });
