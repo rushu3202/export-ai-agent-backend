@@ -9,10 +9,9 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 /* =========================
-   CORS (FULL + SAFE)
+   CORS (SAFE + WORKING)
 ========================= */
-
-// Put your Vercel domains here (add more if needed)
+// Add your Vercel domains here
 const allowedOrigins = [
   "https://export-ai-agent-frontend-live.vercel.app",
   "https://export-ai-agent-frontend-live-git-main-rushalees-projects.vercel.app",
@@ -23,17 +22,17 @@ const allowedOrigins = [
 app.use(
   cors({
     origin: (origin, cb) => {
-      // allow calls from Postman/curl or same-origin
+      // allow Postman/curl (no origin)
       if (!origin) return cb(null, true);
 
-      // allow listed vercel domains
+      // allow your Vercel domains
       if (allowedOrigins.includes(origin)) return cb(null, true);
 
-      // MVP: allow all (prevents you getting stuck again)
+      // IMPORTANT: for MVP, allow all other origins too (prevents you getting stuck)
       return cb(null, true);
     },
     credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    methods: ["GET", "POST", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
@@ -56,7 +55,9 @@ const supabaseAdmin = createClient(
 ========================= */
 app.get("/", (req, res) => res.json({ status: "Export Agent Backend is running ✅" }));
 app.get("/healthz", (req, res) => res.status(200).json({ ok: true }));
-app.get("/api/health", (req, res) => res.status(200).json({ ok: true, service: "export-ai-agent-backend" }));
+app.get("/api/health", (req, res) =>
+  res.status(200).json({ ok: true, service: "export-ai-agent-backend" })
+);
 
 /* =========================
    AUTH HELPER
@@ -101,18 +102,15 @@ app.post("/api/export-check", (req, res) => {
   // Base docs always
   response.documents.push("Commercial Invoice", "Packing List", "Certificate of Origin");
 
-  const dest = country.trim().toLowerCase();
+  const dest = country.trim().toLowerCase().replace(/\./g, "").replace(/,/g, "").replace(/\s+/g, " ");
 
   if (dest === "uk") response.documents.push("EORI Number");
 
-  // Beginner warnings
   if (experience === "beginner") {
     response.warnings.push("Hire a freight forwarder", "Avoid CIF pricing initially");
   }
 
-  // Product rules
   const p = product.trim().toLowerCase();
-
   const addHS = (code, description, confidence) => {
     response.hs_code_suggestions.push({ code, description, confidence });
   };
@@ -124,21 +122,27 @@ app.post("/api/export-check", (req, res) => {
     addHS("6205", "Men’s or boys’ shirts (not knitted)", "MEDIUM");
   }
 
-  // Food / Agriculture (makhana)
+  // Food / Agriculture (Makhana)
   if (p.includes("makhana") || p.includes("fox nut") || p.includes("phool makhana")) {
-    addHS("2008", "Fruits, nuts and other edible parts of plants, otherwise prepared or preserved", "MEDIUM");
-    response.warnings.push("Food items may require additional checks: ingredient list, labeling, phytosanitary or food safety rules.");
+    addHS(
+      "2008",
+      "Fruits, nuts and other edible parts of plants, otherwise prepared or preserved",
+      "MEDIUM"
+    );
     response.documents.push("Ingredients / Product Specification Sheet");
+    response.warnings.push(
+      "Food items may require extra checks: labeling, ingredients, shelf-life, and food safety rules."
+    );
     response.nextSteps.unshift("Confirm food compliance rules for the destination country");
+    response.journey_stage = "FOOD_COMPLIANCE";
   }
 
-  // If nothing matched
+  // If no match
   if (response.hs_code_suggestions.length === 0) {
     response.hs_note =
-      "No direct HS match found. Add more details (material, composition, use, processing) for better suggestion.";
-    // Add “always show something” fallback guidance
+      "No direct HS match found. Add details (material, composition, use, processing) for better suggestion.";
     response.documents.push("Product Specification Sheet (materials, composition, use)");
-    response.nextSteps.unshift("Provide more product detail for HS classification");
+    response.nextSteps.unshift("Add more product details for better HS classification");
   } else {
     response.hs_note =
       "HS code suggestions are guidance only. Confirm final HS code with a customs broker or official tariff tool.";
@@ -153,10 +157,7 @@ app.post("/api/export-check", (req, res) => {
 /* =========================
    REPORTS API (SUPABASE)
    Table: export_reports
-   Columns used:
-   user_id, email, product, country, experience,
-   hs_code, hs_description, risk_level, incoterm,
-   journey_stage, result (jsonb), created_at
+   Must have column: result (jsonb)
 ========================= */
 
 // SAVE report
@@ -181,7 +182,7 @@ app.post("/api/reports", async (req, res) => {
     risk_level: result.risk_level || "",
     incoterm: result.recommended_incoterm || "",
     journey_stage: result.journey_stage || "",
-    result, // jsonb
+    result, // jsonb column
   };
 
   const { data, error } = await supabaseAdmin
