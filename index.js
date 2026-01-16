@@ -192,6 +192,52 @@ app.post("/api/reports", async (req, res) => {
     .single();
 
   if (error) return res.status(500).json({ error: error.message });
+  // ------------------ Country Packs (UK-first) ------------------
+response.country_rules = [];
+response.compliance_checklist = [];
+response.official_links = [];
+
+// helper
+const addRule = (title, detail) => response.country_rules.push({ title, detail });
+const addCheck = (item) => response.compliance_checklist.push(item);
+const addLink = (label, url) => response.official_links.push({ label, url });
+
+// Normalize destination
+const dest = country.trim().toLowerCase();
+
+// Detect food-like products (basic)
+const foodKeywords = ["makhana", "fox nut", "phool makhana", "spice", "masala", "snack", "food", "nuts", "dry fruit"];
+const isFood = foodKeywords.some((k) => product.toLowerCase().includes(k));
+
+// UK PACK
+if (dest === "uk") {
+  addRule("UK Import Basics", "Your UK buyer/importer usually needs an EORI number and must handle UK customs import entry.");
+  addRule("VAT & Duties", "Duties/VAT depend on HS code + origin + product type. Confirm with official tariff tools.");
+  addCheck("Confirm who is the Importer of Record (buyer or agent).");
+  addCheck("Confirm HS code (final) using an official tariff tool or broker.");
+  addCheck("Ensure Commercial Invoice + Packing List are complete and match quantities/values.");
+  addCheck("Ensure shipment has clear product description (materials/ingredients).");
+
+  addLink("UK Trade Tariff (check duties by HS code)", "https://www.trade-tariff.service.gov.uk/");
+  addLink("UK Government: Importing guidance", "https://www.gov.uk/import-goods-into-uk");
+  addLink("UK Food Standards Agency (food guidance)", "https://www.food.gov.uk/");
+}
+
+// UK FOOD PACK
+if (dest === "uk" && isFood) {
+  response.journey_stage = "UK_FOOD_COMPLIANCE";
+
+  addRule("Food labeling", "UK food imports must comply with labeling rules (ingredients, allergens, net weight, best-before/expiry, importer details).");
+  addRule("Ingredients & allergens", "Maintain a clear ingredient list + allergen statement. Keep product spec sheet ready.");
+  addRule("Food safety checks", "Some foods may require extra checks depending on origin/product type (confirm with buyer/broker).");
+
+  addCheck("Prepare Ingredients / Product Specification Sheet.");
+  addCheck("Prepare product label info: ingredients, allergens, net weight, dates, importer details.");
+  addCheck("Confirm if any phytosanitary/health certificates are needed (depends on product/category).");
+  addCheck("Confirm packaging is food-safe and sealed properly.");
+
+  addLink("UK Food labeling guidance (overview)", "https://www.gov.uk/food-labelling-and-packaging");
+}
 
   res.json({ ok: true, reportId: data.id });
 });
