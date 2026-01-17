@@ -275,7 +275,7 @@ app.get("/api/reports", async (req, res) => {
 
   const { data, error } = await supabaseAdmin
     .from("export_reports")
-    .select("id, product, country, experience, hs_code, risk_level, incoterm, journey_stage, created_at")
+    .select("id, product, country, experience, hs_code, hs_description, risk_level, incoterm, journey_stage, result, created_at")
     .eq("user_id", auth.user.id)
     .order("created_at", { ascending: false })
     .limit(50);
