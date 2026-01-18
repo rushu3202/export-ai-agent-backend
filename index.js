@@ -8,17 +8,30 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-/* =========================
-   CORS (SAFE + WORKING)
-========================= */
-// Add your Vercel domains here
-const allowedOrigins = [
-  "https://export-ai-agent-frontend-live.vercel.app",
-  "https://export-ai-agent-frontend-live-git-main-rushalees-projects.vercel.app",
-  "https://export-ai-agent-frontend-live-9kbp3m0pq-rushalees-projects.vercel.app",
-];
+// ✅ CORS (supports Vercel prod + preview)
+const allowedOrigin = (origin) => {
+  if (!origin) return true; // Postman/curl/no-origin
+  if (origin === "https://export-ai-agent-frontend-live.vercel.app") return true;
+  if (origin.endsWith(".vercel.app")) return true; // allow ALL Vercel previews
+  return false;
+};
 
-// CORS middleware
+app.use(
+  cors({
+    origin: (origin, cb) => cb(null, allowedOrigin(origin)),
+    credentials: true,
+    methods: ["GET", "POST", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  })
+);
+
+// ✅ MUST handle preflight
+app.options("*", cors());
+
+app.use(express.json({ limit: "1mb" }));
+
+// ... your routes ...
+app.listen(PORT, () => console.log(`🚀 Backend running on port ${PORT}`));
 app.use(
   cors({
     origin: (origin, cb) => {
