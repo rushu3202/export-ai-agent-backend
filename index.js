@@ -247,18 +247,18 @@ app.post("/api/reports", async (req, res) => {
   }
 
   const row = {
-    user_id: auth.user.id,
-    email: auth.user.email,
-    product,
-    country,
-    experience,
-    hs_code: lockedHs.code,
-    hs_description: lockedHs.description || "",
-    risk_level: result.risk_level || "",
-    incoterm: result.recommended_incoterm || "",
-    journey_stage: result.journey_stage || "",
-    result, // ✅ jsonb (includes checklist/rules/links)
-  };
+  user_id: auth.user.id,
+  email: auth.user.email,
+  product,
+  country,
+  experience,
+  hs_code: lockedHs.code,
+  hs_description: lockedHs.description || "",
+  risk_level: result.risk_level || "",
+  incoterm: result.recommended_incoterm || "",
+  journey_stage: result.journey_stage || "",
+  result, // ✅ keep EVERYTHING inside result jsonb
+};
 
   const { data, error } = await supabaseAdmin
     .from("export_reports")
