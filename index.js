@@ -30,8 +30,6 @@ app.options("*", cors());
 
 app.use(express.json({ limit: "1mb" }));
 
-// ... your routes ...
-app.listen(PORT, () => console.log(`🚀 Backend running on port ${PORT}`));
 app.use(
   cors({
     origin: (origin, cb) => {
