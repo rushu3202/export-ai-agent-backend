@@ -9,31 +9,29 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 /* =========================
-   CORS (Vercel prod + previews)
+   CORS
 ========================= */
-const isAllowedOrigin = (origin) => {
-  if (!origin) return true; // Postman/curl/no-origin
-  if (origin === "https://export-ai-agent-frontend-live.vercel.app") return true;
-  if (origin.endsWith(".vercel.app")) return true; // allow ALL Vercel previews
-  return false;
+const corsOptions = {
+  origin: true,
+  credentials: false,
+  methods: ["GET", "POST", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
 };
 
-app.use(
-  cors({
-    origin: (origin, cb) => cb(null, isAllowedOrigin(origin)),
-    credentials: true,
-    methods: ["GET", "POST", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-  })
-);
-
-// preflight
-app.options("*", cors());
+app.use(cors(corsOptions));
+app.options("*", cors(corsOptions));
 app.use(express.json({ limit: "1mb" }));
 
 /* =========================
    SUPABASE (Service Role)
 ========================= */
+if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+  console.error(
+    "Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY. Set both env vars before starting the server."
+  );
+  process.exit(1);
+}
+
 const supabaseAdmin = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -110,7 +108,12 @@ app.post("/api/export-check", (req, res) => {
     response.official_links.push({ label, url });
 
   // Base docs always
-  response.documents.push("Commercial Invoice", "Packing List", "Certificate of Origin");
+  response.documents.push(
+    "Commercial Invoice",
+    "Packing List",
+    "Certificate of Origin",
+    "Product Specification Sheet (materials, composition, use)"
+  );
 
   // Normalize destination
   const dest = country
@@ -168,7 +171,6 @@ app.post("/api/export-check", (req, res) => {
   if (response.hs_code_suggestions.length === 0) {
     response.hs_note =
       "No direct HS match found. Add details (material, composition, use, processing) for better suggestion.";
-    response.documents.push("Product Specification Sheet (materials, composition, use)");
     response.nextSteps.unshift("Add more product details for better HS classification");
   } else {
     response.hs_note =
@@ -182,8 +184,39 @@ app.post("/api/export-check", (req, res) => {
     "Confirm importer/buyer details"
   );
 
+  // Default checklists & rules to prevent empty UI
+  addRule("Importer of Record", "Confirm who is the Importer of Record for the shipment.");
+  addRule("Tariff & Duties", "Duties/VAT depend on HS code and origin. Confirm with official tariffs.");
+  addRule(
+    "Invoice accuracy",
+    "Invoice must match packing list and include HS, incoterm, values, origin, and currency."
+  );
+
+  addCheck("Confirm Importer of Record (buyer or broker).");
+  addCheck("Confirm final HS code using a tariff tool or broker.");
+  addCheck("Prepare Commercial Invoice (HS, incoterm, values, origin, currency).");
+
+  addLink("WCO HS information", "https://www.wcoomd.org/en/topics/nomenclature.aspx");
+  addLink("UN/CEFACT trade facilitation", "https://unece.org/trade/cefact");
+
+  if (response.warnings.length === 0) {
+    response.warnings.push("Regulations vary by destination—verify local import rules before shipment.");
+  }
+
+  if (response.hs_code_suggestions.length === 0) {
+    addHS(
+      "UNKNOWN",
+      "Needs classification - provide composition/use",
+      "LOW"
+    );
+  }
+
   // ✅ UK Rules Pack (UI will always show something)
   if (dest === "uk") {
+    response.country_rules = [];
+    response.compliance_checklist = [];
+    response.official_links = [];
+
     addRule(
       "Importer of Record",
       "Confirm who is the Importer of Record in the UK (buyer, agent, or broker)."
@@ -247,18 +280,18 @@ app.post("/api/reports", async (req, res) => {
   }
 
   const row = {
-  user_id: auth.user.id,
-  email: auth.user.email,
-  product,
-  country,
-  experience,
-  hs_code: lockedHs.code,
-  hs_description: lockedHs.description || "",
-  risk_level: result.risk_level || "",
-  incoterm: result.recommended_incoterm || "",
-  journey_stage: result.journey_stage || "",
-  result, // ✅ keep EVERYTHING inside result jsonb
-};
+    user_id: auth.user.id,
+    email: auth.user.email,
+    product,
+    country,
+    experience,
+    hs_code: lockedHs.code,
+    hs_description: lockedHs.description || "",
+    risk_level: result.risk_level || "",
+    incoterm: result.recommended_incoterm || "",
+    journey_stage: result.journey_stage || "",
+    result, // ✅ keep EVERYTHING inside result jsonb
+  };
 
   const { data, error } = await supabaseAdmin
     .from("export_reports")
@@ -278,7 +311,9 @@ app.get("/api/reports", async (req, res) => {
 
   const { data, error } = await supabaseAdmin
     .from("export_reports")
-    .select("id, product, country, experience, hs_code, hs_description, risk_level, incoterm, journey_stage, result, created_at")
+    .select(
+      "id, product, country, experience, hs_code, hs_description, risk_level, incoterm, journey_stage, result, created_at"
+    )
     .eq("user_id", auth.user.id)
     .order("created_at", { ascending: false })
     .limit(50);
