@@ -87,6 +87,21 @@ function inferCategory(productRaw) {
   const foodKeys = ["makhana", "fox nut", "phool makhana", "spice", "masala", "snack", "food", "nuts", "dry fruit"];
   if (foodKeys.some((k) => p.includes(k))) return "food";
 
+  // Spices
+if (p.includes("spice") || p.includes("spices") || p.includes("masala") || p.includes("turmeric") || p.includes("chilli") || p.includes("pepper") || p.includes("cumin") || p.includes("coriander")) {
+  response.product_category = "food";
+  response.risk_level = "MEDIUM";
+  response.journey_stage = dest === "uk" ? "UK_FOOD_COMPLIANCE" : "FOOD_COMPLIANCE";
+
+  addHS("0904", "Pepper (capsicum/pimenta), dried or crushed", "MEDIUM");
+  addHS("0910", "Ginger, saffron, turmeric, thyme, bay leaves, curry and other spices", "HIGH");
+  addHS("0909", "Seeds of anise, badian, fennel, coriander, cumin, caraway, juniper", "MEDIUM");
+
+  response.documents.push("Ingredients / Product Specification Sheet");
+  response.warnings.push("Food items may require labeling, allergen, and food safety compliance checks.");
+  response.nextSteps.unshift("Confirm food compliance rules for the destination country");
+}
+
   // textiles / apparel
   const textileKeys = ["t-shirt", "tshirt", "tee", "shirt", "cotton", "hoodie", "sweater", "garment", "textile", "fabric"];
   if (textileKeys.some((k) => p.includes(k))) return "textile";
