@@ -1,3 +1,4 @@
+// index.js
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
@@ -13,16 +14,14 @@ const PORT = process.env.PORT || 5000;
 ========================= */
 const isAllowedOrigin = (origin) => {
   if (!origin) return true; // Postman/curl/no-origin
-  // Allow ALL Vercel deployments (prod + preview)
-  if (origin.endsWith(".vercel.app")) return true;
-  // Local dev (optional)
-  if (origin === "http://localhost:5173" || origin === "http://localhost:3000") return true;
+  if (origin.endsWith(".vercel.app")) return true; // Vercel prod + preview
+  if (origin === "http://localhost:5173" || origin === "http://localhost:3000") return true; // local dev
   return false;
 };
 
 const corsOptions = {
   origin: (origin, cb) => cb(null, isAllowedOrigin(origin)),
-  credentials: false, // you're using Bearer token auth, not cookies
+  credentials: false, // Bearer token auth, not cookies
   methods: ["GET", "POST", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
 };
@@ -47,8 +46,12 @@ const supabaseAdmin = createClient(
 /* =========================
    HEALTH
 ========================= */
-app.get("/", (req, res) => res.json({ status: "Export Agent Backend is running ✅" }));
+app.get("/", (req, res) =>
+  res.json({ status: "Export Agent Backend is running ✅" })
+);
+
 app.get("/healthz", (req, res) => res.status(200).json({ ok: true }));
+
 app.get("/api/health", (req, res) =>
   res.status(200).json({ ok: true, service: "export-ai-agent-backend" })
 );
@@ -69,10 +72,10 @@ async function requireUser(req) {
 }
 
 /* =========================
-   EXPORT READINESS CHECK (Codex upgrade)
+   EXPORT READINESS CHECK
 ========================= */
 function normalizeCountry(country) {
-  return (country || "")
+  return String(country || "")
     .trim()
     .toLowerCase()
     .replace(/\./g, "")
@@ -80,103 +83,10 @@ function normalizeCountry(country) {
     .replace(/\s+/g, " ");
 }
 
-function categoryPack(category) {
-  const packs = {
-    textile: {
-      riskLevel: "LOW",
-      riskReason: "Textile exports are usually straightforward if composition and labeling are correct.",
-      journeyStage: "DOCS",
-      documents: [
-        "Commercial Invoice",
-        "Packing List",
-        "Certificate of Origin",
-        "Product Specification Sheet (materials, composition, use)",
-        "Fabric Composition Certificate (if available)",
-      ],
-      documentReasons: [
-        { doc: "Fabric Composition Certificate (if available)", reason: "Helps confirm fiber content (cotton vs blends) for correct HS classification." },
-      ],
-      warnings: ["Confirm fabric composition (e.g., 100% cotton vs blends) for correct HS code."],
-      hsCandidates: [
-        { code: "6109", description: "T-shirts, singlets and other vests (knitted or crocheted)", confidence: "HIGH" },
-        { code: "6205", description: "Men’s or boys’ shirts (not knitted)", confidence: "MEDIUM" },
-        { code: "6110", description: "Sweaters, pullovers and similar articles (knitted)", confidence: "LOW" },
-      ],
-    },
-
-    food: {
-      riskLevel: "MEDIUM",
-      riskReason: "Food exports often require labeling, ingredient/allergen, shelf-life and destination compliance checks.",
-      journeyStage: "FOOD_COMPLIANCE",
-      documents: [
-        "Commercial Invoice",
-        "Packing List",
-        "Certificate of Origin",
-        "Product Specification Sheet (materials, composition, use)",
-        "Ingredients / Product Specification Sheet",
-        "Label Artwork / Label Text (if available)",
-      ],
-      documentReasons: [
-        { doc: "Ingredients / Product Specification Sheet", reason: "Required for ingredient/allergen compliance and buyer due diligence." },
-        { doc: "Label Artwork / Label Text (if available)", reason: "Helps validate labeling requirements for destination market." },
-      ],
-      warnings: ["Food exports may require labeling/allergen/shelf-life checks depending on destination rules."],
-      hsCandidates: [
-        { code: "2008", description: "Fruits, nuts and other edible parts of plants, otherwise prepared or preserved", confidence: "MEDIUM" },
-        { code: "2106", description: "Food preparations not elsewhere specified", confidence: "LOW" },
-        { code: "1905", description: "Bread, pastry, cakes, biscuits and other baked goods", confidence: "LOW" },
-      ],
-    },
-
-    spices: {
-      riskLevel: "MEDIUM",
-      riskReason: "Spices require correct HS chapter, labeling/ingredient details and may trigger food compliance checks.",
-      journeyStage: "FOOD_COMPLIANCE",
-      documents: [
-        "Commercial Invoice",
-        "Packing List",
-        "Certificate of Origin",
-        "Product Specification Sheet (materials, composition, use)",
-        "Ingredients / Product Specification Sheet",
-        "Label Artwork / Label Text (if available)",
-      ],
-      documentReasons: [
-        { doc: "Ingredients / Product Specification Sheet", reason: "Needed to confirm ingredient composition (single spice vs blend) for HS and compliance." },
-        { doc: "Label Artwork / Label Text (if available)", reason: "Spices need compliant labeling (ingredients/allergens/net weight/importer details where required)." },
-      ],
-      warnings: ["Spices/blends may require labeling + allergen statements (if blended/processed)."],
-      hsCandidates: [
-        { code: "0904", description: "Pepper (capsicum/pimenta), dried or crushed", confidence: "MEDIUM" },
-        { code: "0910", description: "Ginger, saffron, turmeric, thyme, bay leaves, curry and other spices", confidence: "HIGH" },
-        { code: "0909", description: "Seeds of anise, badian, fennel, coriander, cumin, caraway, juniper", confidence: "MEDIUM" },
-      ],
-    },
-
-    UNKNOWN: {
-      riskLevel: "MEDIUM",
-      riskReason: "Not enough details to classify. Need composition/material/use for correct HS and compliance.",
-      journeyStage: "NEEDS_DETAILS",
-      documents: [
-        "Commercial Invoice",
-        "Packing List",
-        "Certificate of Origin",
-        "Product Specification Sheet (materials, composition, use)",
-      ],
-      documentReasons: [
-        { doc: "Product Specification Sheet (materials, composition, use)", reason: "Required to determine correct HS classification and compliance." },
-      ],
-      warnings: ["Add more product details (material, composition, use, processing) for accurate HS classification."],
-      hsCandidates: [],
-    },
-  };
-
-  return packs[category] || packs.UNKNOWN;
-}
-
 function inferCategory(product) {
   const p = String(product || "").toLowerCase();
 
-  // Spices (most specific first)
+  // Spices first
   const spiceKeys = [
     "spice",
     "spices",
@@ -191,11 +101,9 @@ function inferCategory(product) {
     "coriander",
     "dhania",
   ];
-  if (spiceKeys.some((k) => p.includes(k))) {
-    return "spices";
-  }
+  if (spiceKeys.some((k) => p.includes(k))) return "spices";
 
-  // Textile / garments
+  // Textile
   const textileKeys = [
     "t-shirt",
     "tshirt",
@@ -207,152 +115,102 @@ function inferCategory(product) {
     "garment",
     "clothing",
     "apparel",
+    "textile",
+    "fabric",
   ];
-  if (textileKeys.some((k) => p.includes(k))) {
-    return "textile";
-  }
-
-  // Food (generic)
-  const foodKeys = [
-    "food",
-    "snack",
-    "makhana",
-    "fox nut",
-    "nuts",
-    "dry fruit",
-  ];
-  if (foodKeys.some((k) => p.includes(k))) {
-    return "food";
-  }
-
-  return "UNKNOWN";
-}
-
-
-  // Spices (most specific first)
-  const spiceKeys = [
-    "spice",
-    "spices",
-    "masala",
-    "turmeric",
-    "haldi",
-    "chilli",
-    "chili",
-    "pepper",
-    "cumin",
-    "jeera",
-    "coriander",
-    "dhania",
-  ];
-  if (spiceKeys.some((k) => p.includes(k))) {
-    return "spices";
-  }
-
-  // Textile / garments
-  const textileKeys = [
-    "t-shirt",
-    "tshirt",
-    "tee",
-    "shirt",
-    "hoodie",
-    "sweater",
-    "cotton",
-    "garment",
-    "clothing",
-    "apparel",
-  ];
-  if (textileKeys.some((k) => p.includes(k))) {
-    return "textile";
-  }
-
-  // Food (generic)
-  const foodKeys = [
-    "food",
-    "snack",
-    "makhana",
-    "fox nut",
-    "nuts",
-    "dry fruit",
-  ];
-  if (foodKeys.some((k) => p.includes(k))) {
-    return "food";
-  }
-
-  return "UNKNOWN";
-}
-
-  // Spices
-// Spices
-if (
-  p.includes("spice") ||
-  p.includes("spices") ||
-  p.includes("masala") ||
-  p.includes("turmeric") ||
-  p.includes("chilli") ||
-  p.includes("pepper") ||
-  p.includes("cumin") ||
-  p.includes("coriander")
-) {
-  response.product_category = "food";
-  response.risk_level = "MEDIUM";
-  response.journey_stage = dest === "uk" ? "UK_FOOD_COMPLIANCE" : "FOOD_COMPLIANCE";
-
-  setRiskReason(
-    "Food products often require labeling, ingredient/allergen checks, and may need additional certificates depending on destination."
-  );
-
-  addHS("0904", "Pepper (capsicum/pimenta), dried or crushed", "MEDIUM");
-  addHSReason("0904", "Matched because the product includes pepper/chilli-type spices.");
-
-  addHS("0910", "Ginger, saffron, turmeric, thyme, bay leaves, curry and other spices", "HIGH");
-  addHSReason("0910", "Matched because the product includes turmeric/curry/mixed spices.");
-
-  addHS("0909", "Seeds of anise, badian, fennel, coriander, cumin, caraway, juniper", "MEDIUM");
-  addHSReason("0909", "Matched because the product includes coriander/cumin-type seeds.");
-
-  response.documents.push("Ingredients / Product Specification Sheet");
-  addDocReason(
-    "Ingredients / Product Specification Sheet",
-    "Needed for labeling compliance, allergens, and destination food import checks."
-  );
-
-  response.documents.push("Label Artwork / Label Text (if available)");
-  addDocReason(
-    "Label Artwork / Label Text (if available)",
-    "Helps confirm the label meets destination requirements (ingredients, allergens, net weight, dates, importer details)."
-  );
-
-  response.warnings.push(
-    "Food items may require labeling/allergen/shelf-life checks depending on destination rules."
-  );
-}
-
-  // textiles / apparel
-  const textileKeys = ["t-shirt", "tshirt", "tee", "shirt", "cotton", "hoodie", "sweater", "garment", "textile", "fabric"];
   if (textileKeys.some((k) => p.includes(k))) return "textile";
 
-  // machinery / parts
-  const machineKeys = ["machine", "machinery", "cnc", "gear", "bearing", "spare", "part", "valve", "pump", "motor", "compressor"];
+  // Food generic
+  const foodKeys = ["food", "snack", "makhana", "fox nut", "nuts", "dry fruit"];
+  if (foodKeys.some((k) => p.includes(k))) return "food";
+
+  // Machinery
+  const machineKeys = [
+    "machine",
+    "machinery",
+    "cnc",
+    "gear",
+    "bearing",
+    "spare",
+    "part",
+    "valve",
+    "pump",
+    "motor",
+    "compressor",
+  ];
   if (machineKeys.some((k) => p.includes(k))) return "machinery";
 
-  // chemicals
-  const chemKeys = ["solvent", "chemical", "cleaner", "acid", "alkali", "detergent", "paint", "adhesive", "resin", "flammable", "hazard"];
+  // Chemicals
+  const chemKeys = [
+    "solvent",
+    "chemical",
+    "cleaner",
+    "acid",
+    "alkali",
+    "detergent",
+    "paint",
+    "adhesive",
+    "resin",
+    "flammable",
+    "hazard",
+  ];
   if (chemKeys.some((k) => p.includes(k))) return "chemicals";
 
-  // electronics
-  const elecKeys = ["bluetooth", "speaker", "headphone", "earphone", "charger", "battery", "electronics", "pcb", "circuit", "wireless", "radio"];
+  // Electronics
+  const elecKeys = [
+    "bluetooth",
+    "speaker",
+    "headphone",
+    "earphone",
+    "charger",
+    "battery",
+    "electronics",
+    "pcb",
+    "circuit",
+    "wireless",
+    "radio",
+  ];
   if (elecKeys.some((k) => p.includes(k))) return "electronics";
 
-  // furniture / wood
-  const furnKeys = ["table", "chair", "sofa", "furniture", "wood", "timber", "cabinet", "bed", "dining"];
+  // Furniture
+  const furnKeys = [
+    "table",
+    "chair",
+    "sofa",
+    "furniture",
+    "wood",
+    "timber",
+    "cabinet",
+    "bed",
+    "dining",
+  ];
   if (furnKeys.some((k) => p.includes(k))) return "furniture";
 
-  // cosmetics
-  const cosKeys = ["cosmetic", "cream", "lotion", "skincare", "skin care", "makeup", "shampoo", "soap", "beauty"];
+  // Cosmetics
+  const cosKeys = [
+    "cosmetic",
+    "cream",
+    "lotion",
+    "skincare",
+    "skin care",
+    "makeup",
+    "shampoo",
+    "soap",
+    "beauty",
+  ];
   if (cosKeys.some((k) => p.includes(k))) return "cosmetics";
 
-  // medical
-  const medKeys = ["mask", "surgical", "medical", "ppe", "glove", "bandage", "thermometer", "diagnostic"];
+  // Medical
+  const medKeys = [
+    "mask",
+    "surgical",
+    "medical",
+    "ppe",
+    "glove",
+    "bandage",
+    "thermometer",
+    "diagnostic",
+  ];
   if (medKeys.some((k) => p.includes(k))) return "medical";
 
   return "UNKNOWN";
@@ -361,7 +219,7 @@ if (
 function uniqHs(list) {
   const seen = new Set();
   const out = [];
-  for (const x of list) {
+  for (const x of list || []) {
     if (!x?.code) continue;
     if (seen.has(x.code)) continue;
     seen.add(x.code);
@@ -373,32 +231,50 @@ function uniqHs(list) {
 function ensureThreeHs(suggestions, category) {
   const base = uniqHs(suggestions);
 
-  // global generic fallbacks (only used to reach 3)
   const generic = [
-    { code: "8479", description: "Machines and mechanical appliances (generic)", confidence: "LOW" },
-    { code: "3926", description: "Other articles of plastics (generic)", confidence: "LOW" },
-    { code: "7326", description: "Other articles of iron or steel (generic)", confidence: "LOW" },
+    {
+      code: "8479",
+      description: "Machines and mechanical appliances (generic)",
+      confidence: "LOW",
+    },
+    {
+      code: "3926",
+      description: "Other articles of plastics (generic)",
+      confidence: "LOW",
+    },
+    {
+      code: "7326",
+      description: "Other articles of iron or steel (generic)",
+      confidence: "LOW",
+    },
   ];
 
-  // If truly unknown category, include an explicit UNKNOWN code
+  // If truly unknown category, include explicit UNKNOWN
   if (category === "UNKNOWN") {
-    base.push({ code: "UNKNOWN", description: "Needs classification — provide composition/use/processing", confidence: "LOW" });
+    base.push({
+      code: "UNKNOWN",
+      description: "Needs classification — provide composition/use/processing",
+      confidence: "LOW",
+    });
   }
 
   const merged = uniqHs([...base, ...generic]);
 
-  // guarantee length 3
   while (merged.length < 3) {
-    merged.push({ code: "7326", description: "Other articles of iron or steel (generic)", confidence: "LOW" });
+    merged.push({
+      code: "7326",
+      description: "Other articles of iron or steel (generic)",
+      confidence: "LOW",
+    });
   }
 
   return merged.slice(0, 3);
 }
 
 function categoryPack(category) {
-  // Base always present to avoid “empty UI”
   const base = {
     risk_level: "MEDIUM",
+    risk_reason: "Standard export flow; confirm HS code and destination rules.",
     journey_stage: "DOCS",
     documents: [
       "Commercial Invoice",
@@ -407,8 +283,7 @@ function categoryPack(category) {
       "Product Specification Sheet (materials, composition, use)",
     ],
     warnings: [],
-    nextSteps: [],
-    hsCandidates: [], // used to build suggestions
+    hsCandidates: [],
   };
 
   switch (category) {
@@ -416,13 +291,100 @@ function categoryPack(category) {
       return {
         ...base,
         risk_level: "LOW",
-        journey_stage: "DOCS",
+        risk_reason:
+          "Textile exports are usually straightforward if composition and labeling are correct.",
         documents: [...base.documents, "Fabric Composition Certificate (if available)"],
-        warnings: ["Confirm fabric composition (e.g., 100% cotton vs blends) for correct HS code."],
+        warnings: [
+          "Confirm fabric composition (e.g., 100% cotton vs blends) for correct HS code.",
+        ],
         hsCandidates: [
-          { code: "6109", description: "T-shirts, singlets and other vests (knitted or crocheted)", confidence: "HIGH" },
-          { code: "6205", description: "Men’s or boys’ shirts (not knitted)", confidence: "MEDIUM" },
-          { code: "6110", description: "Sweaters, pullovers and similar articles (knitted)", confidence: "LOW" },
+          {
+            code: "6109",
+            description: "T-shirts, singlets and other vests (knitted or crocheted)",
+            confidence: "HIGH",
+          },
+          {
+            code: "6205",
+            description: "Men’s or boys’ shirts (not knitted)",
+            confidence: "MEDIUM",
+          },
+          {
+            code: "6110",
+            description: "Sweaters, pullovers and similar articles (knitted)",
+            confidence: "LOW",
+          },
+        ],
+      };
+
+    case "spices":
+      return {
+        ...base,
+        risk_level: "MEDIUM",
+        risk_reason:
+          "Spices require correct HS chapter + labeling/ingredient details; may trigger food compliance checks.",
+        journey_stage: "FOOD_COMPLIANCE",
+        documents: [
+          ...base.documents,
+          "Ingredients / Product Specification Sheet",
+          "Label Artwork / Label Text (if available)",
+        ],
+        warnings: [
+          "Spices/blends may require labeling + allergen statements (if blended/processed).",
+        ],
+        hsCandidates: [
+          {
+            code: "0904",
+            description: "Pepper (capsicum/pimenta), dried or crushed",
+            confidence: "MEDIUM",
+          },
+          {
+            code: "0910",
+            description:
+              "Ginger, saffron, turmeric, thyme, bay leaves, curry and other spices",
+            confidence: "HIGH",
+          },
+          {
+            code: "0909",
+            description:
+              "Seeds of anise, badian, fennel, coriander, cumin, caraway, juniper",
+            confidence: "MEDIUM",
+          },
+        ],
+      };
+
+    case "food":
+      return {
+        ...base,
+        risk_level: "MEDIUM",
+        risk_reason:
+          "Food exports often require labeling, allergen, shelf-life and destination compliance checks.",
+        journey_stage: "FOOD_COMPLIANCE",
+        documents: [
+          ...base.documents,
+          "Ingredients / Product Specification Sheet",
+          "Label Artwork / Label Text (if available)",
+        ],
+        warnings: [
+          "Food exports may require labeling/allergen/shelf-life checks depending on destination rules.",
+        ],
+        hsCandidates: [
+          {
+            code: "2008",
+            description:
+              "Fruits, nuts and other edible parts of plants, otherwise prepared or preserved",
+            confidence: "MEDIUM",
+          },
+          {
+            code: "2106",
+            description: "Food preparations not elsewhere specified",
+            confidence: "LOW",
+          },
+          {
+            code: "1905",
+            description:
+              "Bread, pastry, cakes, biscuits and other baked goods",
+            confidence: "LOW",
+          },
         ],
       };
 
@@ -430,6 +392,8 @@ function categoryPack(category) {
       return {
         ...base,
         risk_level: "MEDIUM",
+        risk_reason:
+          "Machinery/parts need precise technical specs and end-use for classification.",
         journey_stage: "TECH_DOCS",
         documents: [...base.documents, "Technical Datasheet / Manual", "End-use / Function Description"],
         warnings: ["Machines/parts often need clear technical specs and end-use to classify correctly."],
@@ -440,24 +404,12 @@ function categoryPack(category) {
         ],
       };
 
-    case "food":
-      return {
-        ...base,
-        risk_level: "MEDIUM",
-        journey_stage: "FOOD_COMPLIANCE",
-        documents: [...base.documents, "Ingredients / Product Specification Sheet", "Label Artwork / Label Text (if available)"],
-        warnings: ["Food exports may require labeling/allergen/shelf-life checks depending on destination rules."],
-        hsCandidates: [
-          { code: "2008", description: "Fruits, nuts and other edible parts of plants, otherwise prepared or preserved", confidence: "MEDIUM" },
-          { code: "2106", description: "Food preparations not elsewhere specified", confidence: "LOW" },
-          { code: "1905", description: "Bread, pastry, cakes, biscuits and other baked goods", confidence: "LOW" },
-        ],
-      };
-
     case "chemicals":
       return {
         ...base,
         risk_level: "HIGH",
+        risk_reason:
+          "Chemicals may be regulated and require SDS + dangerous goods compliance.",
         journey_stage: "HAZMAT",
         documents: [...base.documents, "Safety Data Sheet (SDS/MSDS)", "Hazard Classification / UN number (if applicable)"],
         warnings: ["Chemicals may be regulated as dangerous goods; SDS and transport compliance are critical."],
@@ -472,6 +424,8 @@ function categoryPack(category) {
       return {
         ...base,
         risk_level: "MEDIUM",
+        risk_reason:
+          "Electronics can require conformity approvals and battery transport documentation.",
         journey_stage: "REGULATORY",
         documents: [...base.documents, "Technical Specs Sheet", "Battery Transport Declaration (if applicable)"],
         warnings: ["Electronics may require destination approvals (e.g., radio/Bluetooth conformity, battery transport rules)."],
@@ -486,6 +440,8 @@ function categoryPack(category) {
       return {
         ...base,
         risk_level: "LOW",
+        risk_reason:
+          "Furniture is typically low risk but wood/packaging can require ISPM-15 compliance.",
         journey_stage: "DOCS",
         documents: [...base.documents, "Material Composition Declaration (wood type/finish)", "Packaging/ISPM-15 statement (if wood packaging)"],
         warnings: ["Wood/packaging may need ISPM-15 compliance depending on destination and packaging type."],
@@ -500,6 +456,8 @@ function categoryPack(category) {
       return {
         ...base,
         risk_level: "MEDIUM",
+        risk_reason:
+          "Cosmetics often require strict labeling/claims compliance in destination markets.",
         journey_stage: "LABEL_REVIEW",
         documents: [...base.documents, "Ingredients (INCI) List", "Labeling & Claims Documentation"],
         warnings: ["Cosmetics often require strict labeling/claims compliance; verify destination cosmetic rules."],
@@ -514,6 +472,8 @@ function categoryPack(category) {
       return {
         ...base,
         risk_level: "HIGH",
+        risk_reason:
+          "Medical/PPE often requires conformity documentation and quality certificates.",
         journey_stage: "MEDICAL_COMPLIANCE",
         documents: [...base.documents, "Quality Certificates (ISO, CE/UKCA, etc.)", "Product Technical File (if applicable)"],
         warnings: ["Medical/PPE may require conformity markings and additional documentation depending on destination."],
@@ -528,6 +488,8 @@ function categoryPack(category) {
       return {
         ...base,
         risk_level: "MEDIUM",
+        risk_reason:
+          "Not enough details to classify confidently. Provide composition/material/use.",
         journey_stage: "DETAILS_NEEDED",
         documents: [...base.documents, "Detailed Product Description (use, composition, processing)"],
         warnings: ["More product details needed to classify correctly (composition, use, processing, materials)."],
@@ -540,9 +502,9 @@ app.post("/api/export-check", (req, res) => {
   const { product, country, experience } = req.body;
 
   if (!product || !country || !experience) {
-    return res
-      .status(400)
-      .json({ error: "Product, country, and experience are required" });
+    return res.status(400).json({
+      error: "Product, country, and experience are required",
+    });
   }
 
   const dest = normalizeCountry(country);
@@ -555,26 +517,24 @@ app.post("/api/export-check", (req, res) => {
     experience,
     allowed: true,
 
-    // core outputs
-    product_category: category || "UNKNOWN",
-    risk_level: pack?.riskLevel || "LOW",
-    risk_reason: pack?.riskReason || "",
+    product_category: category,
+    risk_level: pack.risk_level,
+    risk_reason: pack.risk_reason,
 
-    journey_stage: pack?.journeyStage || "DOCS",
-    recommended_incoterm: String(experience).toLowerCase() === "beginner" ? "DAP" : "FOB",
+    journey_stage: pack.journey_stage,
+    recommended_incoterm:
+      String(experience).toLowerCase() === "beginner" ? "DAP" : "FOB",
 
-    // explainability layers
     hs_code_suggestions: [],
     hs_explanations: [],
     hs_note: "",
 
-    documents: [],
+    documents: [...new Set(pack.documents || [])],
     document_reasons: [],
 
     warnings: [],
     nextSteps: [],
 
-    // country packs (always exist)
     compliance_checklist: [],
     country_rules: [],
     official_links: [],
@@ -585,41 +545,43 @@ app.post("/api/export-check", (req, res) => {
     response.warnings.push("Hire a freight forwarder", "Avoid CIF pricing initially");
   }
 
-  // Build HS suggestions: category candidates + special cases
-  const p = product.toLowerCase();
+  // Pack warnings
+  response.warnings.push(...(pack.warnings || []));
+
+  // HS suggestions: special case + pack candidates
+  const p = String(product).toLowerCase();
   let hs = [];
 
-  // Strong special-case: t-shirts
   if (p.includes("t-shirt") || p.includes("tshirt") || p.includes("tee")) {
-    hs.push({ code: "6109", description: "T-shirts, singlets and other vests (knitted or crocheted)", confidence: "HIGH" });
+    hs.push({
+      code: "6109",
+      description: "T-shirts, singlets and other vests (knitted or crocheted)",
+      confidence: "HIGH",
+    });
   }
 
-  // Add category candidates (ordered)
   hs = hs.concat(pack.hsCandidates || []);
-
-  // Ensure always 3 suggestions (UNKNOWN only for unknown category)
   response.hs_code_suggestions = ensureThreeHs(hs, category);
-    // Apply pack defaults
-  response.product_category = category || "UNKNOWN";
-  response.risk_level = pack?.riskLevel || "LOW";
-  response.risk_reason = pack?.riskReason || "";
-  response.journey_stage = pack?.journeyStage || "DOCS";
 
-  // Documents + reasons + warnings
-  response.documents = Array.from(new Set([...(pack?.documents || [])]));
-  response.document_reasons = pack?.documentReasons || [];
-  response.warnings.push(...(pack?.warnings || []));
-
-  // HS explanations (simple explainability)
+  // HS explanations
   response.hs_explanations = (response.hs_code_suggestions || []).map((x) => ({
     code: x.code,
-    why: category === "spices"
-      ? "Matched spice-related keywords; confirm if single spice vs blended preparation."
-      : category === "food"
-      ? "Matched food-related keywords; confirm processing method and ingredients."
-      : category === "textile"
-      ? "Matched apparel/textile keywords; confirm fabric composition and knit/non-knit."
-      : "Need more product details for confident HS classification.",
+    why:
+      category === "spices"
+        ? "Matched spice-related keywords; confirm if single spice vs blend."
+        : category === "food"
+        ? "Matched food-related keywords; confirm processing and ingredients."
+        : category === "textile"
+        ? "Matched textile keywords; confirm fabric composition and knit/non-knit."
+        : category === "machinery"
+        ? "Matched machinery keywords; confirm technical specs and end-use."
+        : category === "chemicals"
+        ? "Matched chemical keywords; confirm SDS and hazard classification."
+        : category === "electronics"
+        ? "Matched electronics keywords; confirm radio/Bluetooth and battery details."
+        : category === "medical"
+        ? "Matched medical keywords; confirm conformity and intended use."
+        : "Provide more product details for confident HS classification.",
   }));
 
   // HS note
@@ -632,31 +594,42 @@ app.post("/api/export-check", (req, res) => {
       "HS code suggestions are guidance only. Confirm final HS code with a customs broker or official tariff tool.";
   }
 
-  // Universal next steps (always)
+  // Universal next steps
   response.nextSteps.push(
     "Confirm HS code",
     "Talk to logistics partner",
     "Confirm importer/buyer details"
   );
 
-  // Default “always show something” (non-UK)
+  // Default global rules
   response.country_rules.push(
-    { title: "Importer of Record", detail: "Confirm who is the Importer of Record for the shipment." },
-    { title: "Tariff & Duties", detail: "Duties/VAT depend on HS code and origin. Confirm using official tariff tools." },
-    { title: "Invoice accuracy", detail: "Invoice must match packing list and include HS, incoterm, values, origin, and currency." }
+    {
+      title: "Importer of Record",
+      detail: "Confirm who is the Importer of Record for the shipment.",
+    },
+    {
+      title: "Tariff & Duties",
+      detail: "Duties/VAT depend on HS code and origin. Confirm using official tariff tools.",
+    },
+    {
+      title: "Invoice accuracy",
+      detail: "Invoice must match packing list and include HS, incoterm, values, origin, and currency.",
+    }
   );
+
   response.compliance_checklist.push(
     "Confirm Importer of Record (buyer or broker).",
     "Confirm final HS code using a tariff tool or broker.",
     "Prepare Commercial Invoice (HS, incoterm, values, origin, currency).",
     "Prepare Packing List (weights, cartons, dimensions)."
   );
+
   response.official_links.push(
     { label: "WCO HS information", url: "https://www.wcoomd.org/en/topics/nomenclature.aspx" },
     { label: "UN/CEFACT trade facilitation", url: "https://unece.org/trade/cefact" }
   );
 
-  // Extra category-specific warnings/docs tweaks (simple but useful)
+  // Category-specific extra warnings (optional)
   if (category === "electronics") {
     response.warnings.push("If the product uses Bluetooth/radio, check destination conformity approvals.");
   }
@@ -667,13 +640,10 @@ app.post("/api/export-check", (req, res) => {
     response.warnings.push("Confirm conformity markings/certificates required in the destination market.");
   }
 
-  // UK rules pack (preserved)
+  // UK pack
   if (dest === "uk") {
-    response.documents = response.documents.includes("EORI Number")
-      ? response.documents
-      : [...response.documents, "EORI Number"];
+    if (!response.documents.includes("EORI Number")) response.documents.push("EORI Number");
 
-    // overwrite packs to keep UK-first clean
     response.country_rules = [];
     response.compliance_checklist = [];
     response.official_links = [];
@@ -706,9 +676,10 @@ app.post("/api/export-check", (req, res) => {
       { label: "Import goods into the UK (GOV.UK)", url: "https://www.gov.uk/import-goods-into-uk" }
     );
 
-    // UK Food compliance
-    if (category === "food") {
+    // UK food compliance (food + spices)
+    if (category === "food" || category === "spices") {
       response.journey_stage = "UK_FOOD_COMPLIANCE";
+
       if (!response.documents.includes("Ingredients / Product Specification Sheet")) {
         response.documents.push("Ingredients / Product Specification Sheet");
       }
@@ -721,7 +692,8 @@ app.post("/api/export-check", (req, res) => {
         },
         {
           title: "Ingredients & allergens",
-          detail: "Maintain a clear ingredient list and allergen statement. Keep a product spec sheet ready.",
+          detail:
+            "Maintain a clear ingredient list and allergen statement. Keep a product spec sheet ready.",
         }
       );
 
@@ -737,18 +709,21 @@ app.post("/api/export-check", (req, res) => {
       );
     }
 
-    // UK Medical hint
+    // UK medical hint
     if (category === "medical") {
       response.country_rules.push({
         title: "UK Conformity (UKCA/CE)",
-        detail: "Medical/PPE may require UKCA/CE conformity documentation depending on product type and use.",
+        detail:
+          "Medical/PPE may require UKCA/CE conformity documentation depending on product type and use.",
       });
     }
   }
 
-  // Ensure warnings never empty (UI confidence)
+  // Ensure warnings never empty
   if (!response.warnings.length) {
-    response.warnings.push("Regulations vary by destination—verify local import rules before shipment.");
+    response.warnings.push(
+      "Regulations vary by destination—verify local import rules before shipment."
+    );
   }
 
   res.json(response);
@@ -782,7 +757,7 @@ app.post("/api/reports", async (req, res) => {
     risk_level: result.risk_level || "",
     incoterm: result.recommended_incoterm || "",
     journey_stage: result.journey_stage || "",
-    result, // ✅ keep everything inside result jsonb (avoid schema cache errors)
+    result, // keep everything inside jsonb
   };
 
   const { data, error } = await supabaseAdmin
