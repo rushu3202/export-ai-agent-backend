@@ -176,24 +176,110 @@ function categoryPack(category) {
 function inferCategory(product) {
   const p = String(product || "").toLowerCase();
 
-  // spices first (more specific)
-  const spiceWords = ["spice", "spices", "masala", "turmeric", "chilli", "chili", "pepper", "cumin", "jeera", "coriander", "dhania"];
-  if (spiceWords.some((w) => p.includes(w))) return "spices";
+  // Spices (most specific first)
+  const spiceKeys = [
+    "spice",
+    "spices",
+    "masala",
+    "turmeric",
+    "haldi",
+    "chilli",
+    "chili",
+    "pepper",
+    "cumin",
+    "jeera",
+    "coriander",
+    "dhania",
+  ];
+  if (spiceKeys.some((k) => p.includes(k))) {
+    return "spices";
+  }
 
-  // textile
-  const textileWords = ["t-shirt", "tshirt", "tee", "shirt", "hoodie", "sweater", "cotton", "garment", "clothing", "apparel"];
-  if (textileWords.some((w) => p.includes(w))) return "textile";
+  // Textile / garments
+  const textileKeys = [
+    "t-shirt",
+    "tshirt",
+    "tee",
+    "shirt",
+    "hoodie",
+    "sweater",
+    "cotton",
+    "garment",
+    "clothing",
+    "apparel",
+  ];
+  if (textileKeys.some((k) => p.includes(k))) {
+    return "textile";
+  }
 
-  // food
-  const foodWords = ["food", "snack", "makhana", "fox nut", "nuts", "dry fruit", "masala", "spices"];
-  if (foodWords.some((w) => p.includes(w))) return "food";
+  // Food (generic)
+  const foodKeys = [
+    "food",
+    "snack",
+    "makhana",
+    "fox nut",
+    "nuts",
+    "dry fruit",
+  ];
+  if (foodKeys.some((k) => p.includes(k))) {
+    return "food";
+  }
 
   return "UNKNOWN";
 }
 
-  // food
-  const foodKeys = ["makhana", "fox nut", "phool makhana", "spice", "masala", "snack", "food", "nuts", "dry fruit"];
-  if (foodKeys.some((k) => p.includes(k))) return "food";
+
+  // Spices (most specific first)
+  const spiceKeys = [
+    "spice",
+    "spices",
+    "masala",
+    "turmeric",
+    "haldi",
+    "chilli",
+    "chili",
+    "pepper",
+    "cumin",
+    "jeera",
+    "coriander",
+    "dhania",
+  ];
+  if (spiceKeys.some((k) => p.includes(k))) {
+    return "spices";
+  }
+
+  // Textile / garments
+  const textileKeys = [
+    "t-shirt",
+    "tshirt",
+    "tee",
+    "shirt",
+    "hoodie",
+    "sweater",
+    "cotton",
+    "garment",
+    "clothing",
+    "apparel",
+  ];
+  if (textileKeys.some((k) => p.includes(k))) {
+    return "textile";
+  }
+
+  // Food (generic)
+  const foodKeys = [
+    "food",
+    "snack",
+    "makhana",
+    "fox nut",
+    "nuts",
+    "dry fruit",
+  ];
+  if (foodKeys.some((k) => p.includes(k))) {
+    return "food";
+  }
+
+  return "UNKNOWN";
+}
 
   // Spices
 // Spices
