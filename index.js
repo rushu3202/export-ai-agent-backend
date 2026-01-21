@@ -88,18 +88,49 @@ function inferCategory(productRaw) {
   if (foodKeys.some((k) => p.includes(k))) return "food";
 
   // Spices
-if (p.includes("spice") || p.includes("spices") || p.includes("masala") || p.includes("turmeric") || p.includes("chilli") || p.includes("pepper") || p.includes("cumin") || p.includes("coriander")) {
+// Spices
+if (
+  p.includes("spice") ||
+  p.includes("spices") ||
+  p.includes("masala") ||
+  p.includes("turmeric") ||
+  p.includes("chilli") ||
+  p.includes("pepper") ||
+  p.includes("cumin") ||
+  p.includes("coriander")
+) {
   response.product_category = "food";
   response.risk_level = "MEDIUM";
   response.journey_stage = dest === "uk" ? "UK_FOOD_COMPLIANCE" : "FOOD_COMPLIANCE";
 
+  setRiskReason(
+    "Food products often require labeling, ingredient/allergen checks, and may need additional certificates depending on destination."
+  );
+
   addHS("0904", "Pepper (capsicum/pimenta), dried or crushed", "MEDIUM");
+  addHSReason("0904", "Matched because the product includes pepper/chilli-type spices.");
+
   addHS("0910", "Ginger, saffron, turmeric, thyme, bay leaves, curry and other spices", "HIGH");
+  addHSReason("0910", "Matched because the product includes turmeric/curry/mixed spices.");
+
   addHS("0909", "Seeds of anise, badian, fennel, coriander, cumin, caraway, juniper", "MEDIUM");
+  addHSReason("0909", "Matched because the product includes coriander/cumin-type seeds.");
 
   response.documents.push("Ingredients / Product Specification Sheet");
-  response.warnings.push("Food items may require labeling, allergen, and food safety compliance checks.");
-  response.nextSteps.unshift("Confirm food compliance rules for the destination country");
+  addDocReason(
+    "Ingredients / Product Specification Sheet",
+    "Needed for labeling compliance, allergens, and destination food import checks."
+  );
+
+  response.documents.push("Label Artwork / Label Text (if available)");
+  addDocReason(
+    "Label Artwork / Label Text (if available)",
+    "Helps confirm the label meets destination requirements (ingredients, allergens, net weight, dates, importer details)."
+  );
+
+  response.warnings.push(
+    "Food items may require labeling/allergen/shelf-life checks depending on destination rules."
+  );
 }
 
   // textiles / apparel
@@ -344,6 +375,9 @@ app.post("/api/export-check", (req, res) => {
     compliance_checklist: [],
     country_rules: [],
     official_links: [],
+    hs_explanations: [],
+risk_reason: "",
+document_reasons: [],
   };
 
   // Beginner warnings
