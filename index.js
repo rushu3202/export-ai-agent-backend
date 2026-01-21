@@ -80,8 +80,116 @@ function normalizeCountry(country) {
     .replace(/\s+/g, " ");
 }
 
-function inferCategory(productRaw) {
-  const p = (productRaw || "").toLowerCase();
+function categoryPack(category) {
+  const packs = {
+    textile: {
+      riskLevel: "LOW",
+      riskReason: "Textile exports are usually straightforward if composition and labeling are correct.",
+      journeyStage: "DOCS",
+      documents: [
+        "Commercial Invoice",
+        "Packing List",
+        "Certificate of Origin",
+        "Product Specification Sheet (materials, composition, use)",
+        "Fabric Composition Certificate (if available)",
+      ],
+      documentReasons: [
+        { doc: "Fabric Composition Certificate (if available)", reason: "Helps confirm fiber content (cotton vs blends) for correct HS classification." },
+      ],
+      warnings: ["Confirm fabric composition (e.g., 100% cotton vs blends) for correct HS code."],
+      hsCandidates: [
+        { code: "6109", description: "T-shirts, singlets and other vests (knitted or crocheted)", confidence: "HIGH" },
+        { code: "6205", description: "Men’s or boys’ shirts (not knitted)", confidence: "MEDIUM" },
+        { code: "6110", description: "Sweaters, pullovers and similar articles (knitted)", confidence: "LOW" },
+      ],
+    },
+
+    food: {
+      riskLevel: "MEDIUM",
+      riskReason: "Food exports often require labeling, ingredient/allergen, shelf-life and destination compliance checks.",
+      journeyStage: "FOOD_COMPLIANCE",
+      documents: [
+        "Commercial Invoice",
+        "Packing List",
+        "Certificate of Origin",
+        "Product Specification Sheet (materials, composition, use)",
+        "Ingredients / Product Specification Sheet",
+        "Label Artwork / Label Text (if available)",
+      ],
+      documentReasons: [
+        { doc: "Ingredients / Product Specification Sheet", reason: "Required for ingredient/allergen compliance and buyer due diligence." },
+        { doc: "Label Artwork / Label Text (if available)", reason: "Helps validate labeling requirements for destination market." },
+      ],
+      warnings: ["Food exports may require labeling/allergen/shelf-life checks depending on destination rules."],
+      hsCandidates: [
+        { code: "2008", description: "Fruits, nuts and other edible parts of plants, otherwise prepared or preserved", confidence: "MEDIUM" },
+        { code: "2106", description: "Food preparations not elsewhere specified", confidence: "LOW" },
+        { code: "1905", description: "Bread, pastry, cakes, biscuits and other baked goods", confidence: "LOW" },
+      ],
+    },
+
+    spices: {
+      riskLevel: "MEDIUM",
+      riskReason: "Spices require correct HS chapter, labeling/ingredient details and may trigger food compliance checks.",
+      journeyStage: "FOOD_COMPLIANCE",
+      documents: [
+        "Commercial Invoice",
+        "Packing List",
+        "Certificate of Origin",
+        "Product Specification Sheet (materials, composition, use)",
+        "Ingredients / Product Specification Sheet",
+        "Label Artwork / Label Text (if available)",
+      ],
+      documentReasons: [
+        { doc: "Ingredients / Product Specification Sheet", reason: "Needed to confirm ingredient composition (single spice vs blend) for HS and compliance." },
+        { doc: "Label Artwork / Label Text (if available)", reason: "Spices need compliant labeling (ingredients/allergens/net weight/importer details where required)." },
+      ],
+      warnings: ["Spices/blends may require labeling + allergen statements (if blended/processed)."],
+      hsCandidates: [
+        { code: "0904", description: "Pepper (capsicum/pimenta), dried or crushed", confidence: "MEDIUM" },
+        { code: "0910", description: "Ginger, saffron, turmeric, thyme, bay leaves, curry and other spices", confidence: "HIGH" },
+        { code: "0909", description: "Seeds of anise, badian, fennel, coriander, cumin, caraway, juniper", confidence: "MEDIUM" },
+      ],
+    },
+
+    UNKNOWN: {
+      riskLevel: "MEDIUM",
+      riskReason: "Not enough details to classify. Need composition/material/use for correct HS and compliance.",
+      journeyStage: "NEEDS_DETAILS",
+      documents: [
+        "Commercial Invoice",
+        "Packing List",
+        "Certificate of Origin",
+        "Product Specification Sheet (materials, composition, use)",
+      ],
+      documentReasons: [
+        { doc: "Product Specification Sheet (materials, composition, use)", reason: "Required to determine correct HS classification and compliance." },
+      ],
+      warnings: ["Add more product details (material, composition, use, processing) for accurate HS classification."],
+      hsCandidates: [],
+    },
+  };
+
+  return packs[category] || packs.UNKNOWN;
+}
+
+function inferCategory(product) {
+  const p = String(product || "").toLowerCase();
+
+  // spices first (more specific)
+  const spiceWords = ["spice", "spices", "masala", "turmeric", "chilli", "chili", "pepper", "cumin", "jeera", "coriander", "dhania"];
+  if (spiceWords.some((w) => p.includes(w))) return "spices";
+
+  // textile
+  const textileWords = ["t-shirt", "tshirt", "tee", "shirt", "hoodie", "sweater", "cotton", "garment", "clothing", "apparel"];
+  if (textileWords.some((w) => p.includes(w))) return "textile";
+
+  // food
+  const foodWords = ["food", "snack", "makhana", "fox nut", "nuts", "dry fruit", "masala", "spices"];
+  if (foodWords.some((w) => p.includes(w))) return "food";
+
+  return "UNKNOWN";
+}
 
   // food
   const foodKeys = ["makhana", "fox nut", "phool makhana", "spice", "masala", "snack", "food", "nuts", "dry fruit"];
@@ -346,7 +454,9 @@ app.post("/api/export-check", (req, res) => {
   const { product, country, experience } = req.body;
 
   if (!product || !country || !experience) {
-    return res.status(400).json({ error: "Product, country, and experience are required" });
+    return res
+      .status(400)
+      .json({ error: "Product, country, and experience are required" });
   }
 
   const dest = normalizeCountry(country);
@@ -357,27 +467,31 @@ app.post("/api/export-check", (req, res) => {
     product,
     country,
     experience,
-
-    // ✅ Codex addition
-    product_category: category,
-
     allowed: true,
-    documents: [...pack.documents],
-    warnings: [...pack.warnings],
-    nextSteps: [],
-    hs_code_suggestions: [],
-    hs_note: "",
-    journey_stage: pack.journey_stage,
-    risk_level: pack.risk_level,
-    recommended_incoterm: experience === "beginner" ? "DAP" : "FOB",
 
-    // ✅ always present (frontend never crashes / never looks empty)
+    // core outputs
+    product_category: category || "UNKNOWN",
+    risk_level: pack?.riskLevel || "LOW",
+    risk_reason: pack?.riskReason || "",
+
+    journey_stage: pack?.journeyStage || "DOCS",
+    recommended_incoterm: String(experience).toLowerCase() === "beginner" ? "DAP" : "FOB",
+
+    // explainability layers
+    hs_code_suggestions: [],
+    hs_explanations: [],
+    hs_note: "",
+
+    documents: [],
+    document_reasons: [],
+
+    warnings: [],
+    nextSteps: [],
+
+    // country packs (always exist)
     compliance_checklist: [],
     country_rules: [],
     official_links: [],
-    hs_explanations: [],
-risk_reason: "",
-document_reasons: [],
   };
 
   // Beginner warnings
@@ -399,6 +513,28 @@ document_reasons: [],
 
   // Ensure always 3 suggestions (UNKNOWN only for unknown category)
   response.hs_code_suggestions = ensureThreeHs(hs, category);
+    // Apply pack defaults
+  response.product_category = category || "UNKNOWN";
+  response.risk_level = pack?.riskLevel || "LOW";
+  response.risk_reason = pack?.riskReason || "";
+  response.journey_stage = pack?.journeyStage || "DOCS";
+
+  // Documents + reasons + warnings
+  response.documents = Array.from(new Set([...(pack?.documents || [])]));
+  response.document_reasons = pack?.documentReasons || [];
+  response.warnings.push(...(pack?.warnings || []));
+
+  // HS explanations (simple explainability)
+  response.hs_explanations = (response.hs_code_suggestions || []).map((x) => ({
+    code: x.code,
+    why: category === "spices"
+      ? "Matched spice-related keywords; confirm if single spice vs blended preparation."
+      : category === "food"
+      ? "Matched food-related keywords; confirm processing method and ingredients."
+      : category === "textile"
+      ? "Matched apparel/textile keywords; confirm fabric composition and knit/non-knit."
+      : "Need more product details for confident HS classification.",
+  }));
 
   // HS note
   if (category === "UNKNOWN") {
