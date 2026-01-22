@@ -1,10 +1,15 @@
 // index.js
 import express from "express";
 import cors from "cors";
+import Stripe from "stripe";
 import dotenv from "dotenv";
 import { createClient } from "@supabase/supabase-js";
 
 dotenv.config();
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "", {
+  apiVersion: "2024-06-20",
+});
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -28,6 +33,90 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 app.options("*", cors(corsOptions));
+// =========================
+// STRIPE WEBHOOK (must be BEFORE express.json())
+// =========================
+app.post(
+  "/api/stripe/webhook",
+  express.raw({ type: "application/json" }),
+  async (req, res) => {
+    try {
+      const sig = req.headers["stripe-signature"];
+      const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+
+      if (!webhookSecret) {
+        return res.status(500).send("Missing STRIPE_WEBHOOK_SECRET");
+      }
+
+      let event;
+      try {
+        event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
+      } catch (err) {
+        console.error("❌ Stripe signature verify failed:", err.message);
+        return res.status(400).send(`Webhook Error: ${err.message}`);
+      }
+
+      // Helper: set paid/unpaid by email in Supabase
+      const setPaidByEmail = async (email, paid) => {
+        if (!email) return;
+
+        // Make sure a profile exists (upsert)
+        const { error: upsertErr } = await supabaseAdmin
+          .from("user_profiles")
+          .upsert(
+            { email, is_paid: paid },
+            { onConflict: "email" }
+          );
+
+        if (upsertErr) {
+          console.error("❌ Supabase upsert error:", upsertErr.message);
+        }
+      };
+
+      // ---- Handle events ----
+      if (event.type === "checkout.session.completed") {
+        const session = event.data.object;
+
+        // Payment links checkout usually includes customer_details.email
+        const email =
+          session?.customer_details?.email ||
+          session?.customer_email ||
+          null;
+
+        console.log("✅ checkout.session.completed for", email);
+
+        // Mark paid true
+        await setPaidByEmail(email, true);
+      }
+
+      if (event.type === "invoice.payment_succeeded") {
+        const invoice = event.data.object;
+
+        // Sometimes you can get email via customer_email
+        const email = invoice?.customer_email || null;
+
+        console.log("✅ invoice.payment_succeeded for", email);
+
+        await setPaidByEmail(email, true);
+      }
+
+      if (event.type === "customer.subscription.deleted") {
+        const sub = event.data.object;
+
+        // Often no email here. If you want perfect cancel handling,
+        // we’ll map stripe_customer_id later.
+        console.log("⚠️ subscription.deleted received (best handled with customer mapping)");
+
+        // For MVP we won’t auto-unlock here unless email is available.
+      }
+
+      return res.json({ received: true });
+    } catch (e) {
+      console.error("❌ Webhook handler error:", e);
+      return res.status(500).send("Webhook handler failed");
+    }
+  }
+);
 app.use(express.json({ limit: "1mb" }));
 
 /* =========================
