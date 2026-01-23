@@ -7,10 +7,6 @@ import { createClient } from "@supabase/supabase-js";
 
 dotenv.config();
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "", {
-  apiVersion: "2024-06-20",
-});
-
 const app = express();
 const PORT = process.env.PORT || 5000;
 
@@ -28,14 +24,41 @@ const corsOptions = {
   origin: (origin, cb) => cb(null, isAllowedOrigin(origin)),
   credentials: false, // Bearer token auth, not cookies
   methods: ["GET", "POST", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
+  allowedHeaders: ["Content-Type", "Authorization", "Stripe-Signature"],
 };
 
 app.use(cors(corsOptions));
 app.options("*", cors(corsOptions));
-// =========================
-// STRIPE WEBHOOK (must be BEFORE express.json())
-// =========================
+
+/* =========================
+   SUPABASE (Service Role)  ✅ MUST be before webhook
+========================= */
+if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+  console.error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY env vars.");
+  process.exit(1);
+}
+
+const supabaseAdmin = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
+
+/* =========================
+   STRIPE
+========================= */
+if (!process.env.STRIPE_SECRET_KEY) {
+  console.error("Missing STRIPE_SECRET_KEY env var.");
+  process.exit(1);
+}
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
+  apiVersion: "2024-06-20",
+});
+
+/* =========================
+   STRIPE WEBHOOK ✅ raw BEFORE express.json()
+   Endpoint: POST /api/stripe/webhook
+========================= */
 app.post(
   "/api/stripe/webhook",
   express.raw({ type: "application/json" }),
@@ -45,6 +68,7 @@ app.post(
       const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
       if (!webhookSecret) {
+        console.error("Missing STRIPE_WEBHOOK_SECRET env var.");
         return res.status(500).send("Missing STRIPE_WEBHOOK_SECRET");
       }
 
@@ -56,58 +80,59 @@ app.post(
         return res.status(400).send(`Webhook Error: ${err.message}`);
       }
 
-      // Helper: set paid/unpaid by email in Supabase
       const setPaidByEmail = async (email, paid) => {
         if (!email) return;
 
-        // Make sure a profile exists (upsert)
-        const { error: upsertErr } = await supabaseAdmin
+        // Update existing profile (your app already creates profile at login)
+        const { data, error } = await supabaseAdmin
           .from("user_profiles")
-          .upsert(
-            { email, is_paid: paid },
-            { onConflict: "email" }
-          );
+          .update({
+            is_paid: paid,
+            paid_at: paid ? new Date().toISOString() : null,
+          })
+          .eq("email", email)
+          .select("id,email,is_paid");
 
-        if (upsertErr) {
-          console.error("❌ Supabase upsert error:", upsertErr.message);
+        if (error) {
+          console.error("❌ Supabase update error:", error.message);
+          return;
+        }
+
+        if (!data || data.length === 0) {
+          console.warn(
+            "⚠️ No user_profiles row matched this email. Make sure profile is created on signup/login:",
+            email
+          );
+        } else {
+          console.log("✅ Updated user_profiles:", data);
         }
       };
 
       // ---- Handle events ----
       if (event.type === "checkout.session.completed") {
         const session = event.data.object;
-
-        // Payment links checkout usually includes customer_details.email
         const email =
           session?.customer_details?.email ||
           session?.customer_email ||
+          session?.customer_details?.name || // fallback, rarely useful
           null;
 
         console.log("✅ checkout.session.completed for", email);
-
-        // Mark paid true
         await setPaidByEmail(email, true);
       }
 
       if (event.type === "invoice.payment_succeeded") {
         const invoice = event.data.object;
-
-        // Sometimes you can get email via customer_email
         const email = invoice?.customer_email || null;
 
         console.log("✅ invoice.payment_succeeded for", email);
-
         await setPaidByEmail(email, true);
       }
 
+      // Optional: if you want to auto-disable when subscription cancels,
+      // you need mapping customer_id -> email (next step)
       if (event.type === "customer.subscription.deleted") {
-        const sub = event.data.object;
-
-        // Often no email here. If you want perfect cancel handling,
-        // we’ll map stripe_customer_id later.
-        console.log("⚠️ subscription.deleted received (best handled with customer mapping)");
-
-        // For MVP we won’t auto-unlock here unless email is available.
+        console.log("⚠️ customer.subscription.deleted received (needs customer mapping to email).");
       }
 
       return res.json({ received: true });
@@ -117,20 +142,11 @@ app.post(
     }
   }
 );
-app.use(express.json({ limit: "1mb" }));
 
 /* =========================
-   SUPABASE (Service Role)
+   JSON body parser (AFTER webhook)
 ========================= */
-if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
-  console.error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY env vars.");
-  process.exit(1);
-}
-
-const supabaseAdmin = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
+app.use(express.json({ limit: "1mb" }));
 
 /* =========================
    HEALTH
@@ -175,131 +191,35 @@ function normalizeCountry(country) {
 function inferCategory(product) {
   const p = String(product || "").toLowerCase();
 
-  // Spices first
   const spiceKeys = [
-    "spice",
-    "spices",
-    "masala",
-    "turmeric",
-    "haldi",
-    "chilli",
-    "chili",
-    "pepper",
-    "cumin",
-    "jeera",
-    "coriander",
-    "dhania",
+    "spice","spices","masala","turmeric","haldi","chilli","chili","pepper","cumin","jeera","coriander","dhania",
   ];
   if (spiceKeys.some((k) => p.includes(k))) return "spices";
 
-  // Textile
   const textileKeys = [
-    "t-shirt",
-    "tshirt",
-    "tee",
-    "shirt",
-    "hoodie",
-    "sweater",
-    "cotton",
-    "garment",
-    "clothing",
-    "apparel",
-    "textile",
-    "fabric",
+    "t-shirt","tshirt","tee","shirt","hoodie","sweater","cotton","garment","clothing","apparel","textile","fabric",
   ];
   if (textileKeys.some((k) => p.includes(k))) return "textile";
 
-  // Food generic
   const foodKeys = ["food", "snack", "makhana", "fox nut", "nuts", "dry fruit"];
   if (foodKeys.some((k) => p.includes(k))) return "food";
 
-  // Machinery
-  const machineKeys = [
-    "machine",
-    "machinery",
-    "cnc",
-    "gear",
-    "bearing",
-    "spare",
-    "part",
-    "valve",
-    "pump",
-    "motor",
-    "compressor",
-  ];
+  const machineKeys = ["machine","machinery","cnc","gear","bearing","spare","part","valve","pump","motor","compressor"];
   if (machineKeys.some((k) => p.includes(k))) return "machinery";
 
-  // Chemicals
-  const chemKeys = [
-    "solvent",
-    "chemical",
-    "cleaner",
-    "acid",
-    "alkali",
-    "detergent",
-    "paint",
-    "adhesive",
-    "resin",
-    "flammable",
-    "hazard",
-  ];
+  const chemKeys = ["solvent","chemical","cleaner","acid","alkali","detergent","paint","adhesive","resin","flammable","hazard"];
   if (chemKeys.some((k) => p.includes(k))) return "chemicals";
 
-  // Electronics
-  const elecKeys = [
-    "bluetooth",
-    "speaker",
-    "headphone",
-    "earphone",
-    "charger",
-    "battery",
-    "electronics",
-    "pcb",
-    "circuit",
-    "wireless",
-    "radio",
-  ];
+  const elecKeys = ["bluetooth","speaker","headphone","earphone","charger","battery","electronics","pcb","circuit","wireless","radio"];
   if (elecKeys.some((k) => p.includes(k))) return "electronics";
 
-  // Furniture
-  const furnKeys = [
-    "table",
-    "chair",
-    "sofa",
-    "furniture",
-    "wood",
-    "timber",
-    "cabinet",
-    "bed",
-    "dining",
-  ];
+  const furnKeys = ["table","chair","sofa","furniture","wood","timber","cabinet","bed","dining"];
   if (furnKeys.some((k) => p.includes(k))) return "furniture";
 
-  // Cosmetics
-  const cosKeys = [
-    "cosmetic",
-    "cream",
-    "lotion",
-    "skincare",
-    "skin care",
-    "makeup",
-    "shampoo",
-    "soap",
-    "beauty",
-  ];
+  const cosKeys = ["cosmetic","cream","lotion","skincare","skin care","makeup","shampoo","soap","beauty"];
   if (cosKeys.some((k) => p.includes(k))) return "cosmetics";
 
-  // Medical
-  const medKeys = [
-    "mask",
-    "surgical",
-    "medical",
-    "ppe",
-    "glove",
-    "bandage",
-    "thermometer",
-    "diagnostic",
-  ];
+  const medKeys = ["mask","surgical","medical","ppe","glove","bandage","thermometer","diagnostic"];
   if (medKeys.some((k) => p.includes(k))) return "medical";
 
   return "UNKNOWN";
@@ -321,41 +241,17 @@ function ensureThreeHs(suggestions, category) {
   const base = uniqHs(suggestions);
 
   const generic = [
-    {
-      code: "8479",
-      description: "Machines and mechanical appliances (generic)",
-      confidence: "LOW",
-    },
-    {
-      code: "3926",
-      description: "Other articles of plastics (generic)",
-      confidence: "LOW",
-    },
-    {
-      code: "7326",
-      description: "Other articles of iron or steel (generic)",
-      confidence: "LOW",
-    },
+    { code: "8479", description: "Machines and mechanical appliances (generic)", confidence: "LOW" },
+    { code: "3926", description: "Other articles of plastics (generic)", confidence: "LOW" },
+    { code: "7326", description: "Other articles of iron or steel (generic)", confidence: "LOW" },
   ];
 
-  // If truly unknown category, include explicit UNKNOWN
   if (category === "UNKNOWN") {
-    base.push({
-      code: "UNKNOWN",
-      description: "Needs classification — provide composition/use/processing",
-      confidence: "LOW",
-    });
+    base.push({ code: "UNKNOWN", description: "Needs classification — provide composition/use/processing", confidence: "LOW" });
   }
 
   const merged = uniqHs([...base, ...generic]);
-
-  while (merged.length < 3) {
-    merged.push({
-      code: "7326",
-      description: "Other articles of iron or steel (generic)",
-      confidence: "LOW",
-    });
-  }
+  while (merged.length < 3) merged.push(generic[2]);
 
   return merged.slice(0, 3);
 }
@@ -380,28 +276,13 @@ function categoryPack(category) {
       return {
         ...base,
         risk_level: "LOW",
-        risk_reason:
-          "Textile exports are usually straightforward if composition and labeling are correct.",
+        risk_reason: "Textile exports are usually straightforward if composition and labeling are correct.",
         documents: [...base.documents, "Fabric Composition Certificate (if available)"],
-        warnings: [
-          "Confirm fabric composition (e.g., 100% cotton vs blends) for correct HS code.",
-        ],
+        warnings: ["Confirm fabric composition (e.g., 100% cotton vs blends) for correct HS code."],
         hsCandidates: [
-          {
-            code: "6109",
-            description: "T-shirts, singlets and other vests (knitted or crocheted)",
-            confidence: "HIGH",
-          },
-          {
-            code: "6205",
-            description: "Men’s or boys’ shirts (not knitted)",
-            confidence: "MEDIUM",
-          },
-          {
-            code: "6110",
-            description: "Sweaters, pullovers and similar articles (knitted)",
-            confidence: "LOW",
-          },
+          { code: "6109", description: "T-shirts, singlets and other vests (knitted or crocheted)", confidence: "HIGH" },
+          { code: "6205", description: "Men’s or boys’ shirts (not knitted)", confidence: "MEDIUM" },
+          { code: "6110", description: "Sweaters, pullovers and similar articles (knitted)", confidence: "LOW" },
         ],
       };
 
@@ -409,35 +290,14 @@ function categoryPack(category) {
       return {
         ...base,
         risk_level: "MEDIUM",
-        risk_reason:
-          "Spices require correct HS chapter + labeling/ingredient details; may trigger food compliance checks.",
+        risk_reason: "Spices require correct HS chapter + labeling/ingredient details; may trigger food compliance checks.",
         journey_stage: "FOOD_COMPLIANCE",
-        documents: [
-          ...base.documents,
-          "Ingredients / Product Specification Sheet",
-          "Label Artwork / Label Text (if available)",
-        ],
-        warnings: [
-          "Spices/blends may require labeling + allergen statements (if blended/processed).",
-        ],
+        documents: [...base.documents, "Ingredients / Product Specification Sheet", "Label Artwork / Label Text (if available)"],
+        warnings: ["Spices/blends may require labeling + allergen statements (if blended/processed)."],
         hsCandidates: [
-          {
-            code: "0904",
-            description: "Pepper (capsicum/pimenta), dried or crushed",
-            confidence: "MEDIUM",
-          },
-          {
-            code: "0910",
-            description:
-              "Ginger, saffron, turmeric, thyme, bay leaves, curry and other spices",
-            confidence: "HIGH",
-          },
-          {
-            code: "0909",
-            description:
-              "Seeds of anise, badian, fennel, coriander, cumin, caraway, juniper",
-            confidence: "MEDIUM",
-          },
+          { code: "0904", description: "Pepper (capsicum/pimenta), dried or crushed", confidence: "MEDIUM" },
+          { code: "0910", description: "Ginger, saffron, turmeric, thyme, bay leaves, curry and other spices", confidence: "HIGH" },
+          { code: "0909", description: "Seeds of anise, badian, fennel, coriander, cumin, caraway, juniper", confidence: "MEDIUM" },
         ],
       };
 
@@ -445,35 +305,14 @@ function categoryPack(category) {
       return {
         ...base,
         risk_level: "MEDIUM",
-        risk_reason:
-          "Food exports often require labeling, allergen, shelf-life and destination compliance checks.",
+        risk_reason: "Food exports often require labeling, allergen, shelf-life and destination compliance checks.",
         journey_stage: "FOOD_COMPLIANCE",
-        documents: [
-          ...base.documents,
-          "Ingredients / Product Specification Sheet",
-          "Label Artwork / Label Text (if available)",
-        ],
-        warnings: [
-          "Food exports may require labeling/allergen/shelf-life checks depending on destination rules.",
-        ],
+        documents: [...base.documents, "Ingredients / Product Specification Sheet", "Label Artwork / Label Text (if available)"],
+        warnings: ["Food exports may require labeling/allergen/shelf-life checks depending on destination rules."],
         hsCandidates: [
-          {
-            code: "2008",
-            description:
-              "Fruits, nuts and other edible parts of plants, otherwise prepared or preserved",
-            confidence: "MEDIUM",
-          },
-          {
-            code: "2106",
-            description: "Food preparations not elsewhere specified",
-            confidence: "LOW",
-          },
-          {
-            code: "1905",
-            description:
-              "Bread, pastry, cakes, biscuits and other baked goods",
-            confidence: "LOW",
-          },
+          { code: "2008", description: "Fruits, nuts and other edible parts of plants, otherwise prepared or preserved", confidence: "MEDIUM" },
+          { code: "2106", description: "Food preparations not elsewhere specified", confidence: "LOW" },
+          { code: "1905", description: "Bread, pastry, cakes, biscuits and other baked goods", confidence: "LOW" },
         ],
       };
 
@@ -481,8 +320,7 @@ function categoryPack(category) {
       return {
         ...base,
         risk_level: "MEDIUM",
-        risk_reason:
-          "Machinery/parts need precise technical specs and end-use for classification.",
+        risk_reason: "Machinery/parts need precise technical specs and end-use for classification.",
         journey_stage: "TECH_DOCS",
         documents: [...base.documents, "Technical Datasheet / Manual", "End-use / Function Description"],
         warnings: ["Machines/parts often need clear technical specs and end-use to classify correctly."],
@@ -497,8 +335,7 @@ function categoryPack(category) {
       return {
         ...base,
         risk_level: "HIGH",
-        risk_reason:
-          "Chemicals may be regulated and require SDS + dangerous goods compliance.",
+        risk_reason: "Chemicals may be regulated and require SDS + dangerous goods compliance.",
         journey_stage: "HAZMAT",
         documents: [...base.documents, "Safety Data Sheet (SDS/MSDS)", "Hazard Classification / UN number (if applicable)"],
         warnings: ["Chemicals may be regulated as dangerous goods; SDS and transport compliance are critical."],
@@ -513,8 +350,7 @@ function categoryPack(category) {
       return {
         ...base,
         risk_level: "MEDIUM",
-        risk_reason:
-          "Electronics can require conformity approvals and battery transport documentation.",
+        risk_reason: "Electronics can require conformity approvals and battery transport documentation.",
         journey_stage: "REGULATORY",
         documents: [...base.documents, "Technical Specs Sheet", "Battery Transport Declaration (if applicable)"],
         warnings: ["Electronics may require destination approvals (e.g., radio/Bluetooth conformity, battery transport rules)."],
@@ -529,8 +365,7 @@ function categoryPack(category) {
       return {
         ...base,
         risk_level: "LOW",
-        risk_reason:
-          "Furniture is typically low risk but wood/packaging can require ISPM-15 compliance.",
+        risk_reason: "Furniture is typically low risk but wood/packaging can require ISPM-15 compliance.",
         journey_stage: "DOCS",
         documents: [...base.documents, "Material Composition Declaration (wood type/finish)", "Packaging/ISPM-15 statement (if wood packaging)"],
         warnings: ["Wood/packaging may need ISPM-15 compliance depending on destination and packaging type."],
@@ -545,8 +380,7 @@ function categoryPack(category) {
       return {
         ...base,
         risk_level: "MEDIUM",
-        risk_reason:
-          "Cosmetics often require strict labeling/claims compliance in destination markets.",
+        risk_reason: "Cosmetics often require strict labeling/claims compliance in destination markets.",
         journey_stage: "LABEL_REVIEW",
         documents: [...base.documents, "Ingredients (INCI) List", "Labeling & Claims Documentation"],
         warnings: ["Cosmetics often require strict labeling/claims compliance; verify destination cosmetic rules."],
@@ -561,8 +395,7 @@ function categoryPack(category) {
       return {
         ...base,
         risk_level: "HIGH",
-        risk_reason:
-          "Medical/PPE often requires conformity documentation and quality certificates.",
+        risk_reason: "Medical/PPE often requires conformity documentation and quality certificates.",
         journey_stage: "MEDICAL_COMPLIANCE",
         documents: [...base.documents, "Quality Certificates (ISO, CE/UKCA, etc.)", "Product Technical File (if applicable)"],
         warnings: ["Medical/PPE may require conformity markings and additional documentation depending on destination."],
@@ -577,8 +410,7 @@ function categoryPack(category) {
       return {
         ...base,
         risk_level: "MEDIUM",
-        risk_reason:
-          "Not enough details to classify confidently. Provide composition/material/use.",
+        risk_reason: "Not enough details to classify confidently. Provide composition/material/use.",
         journey_stage: "DETAILS_NEEDED",
         documents: [...base.documents, "Detailed Product Description (use, composition, processing)"],
         warnings: ["More product details needed to classify correctly (composition, use, processing, materials)."],
@@ -591,9 +423,7 @@ app.post("/api/export-check", (req, res) => {
   const { product, country, experience } = req.body;
 
   if (!product || !country || !experience) {
-    return res.status(400).json({
-      error: "Product, country, and experience are required",
-    });
+    return res.status(400).json({ error: "Product, country, and experience are required" });
   }
 
   const dest = normalizeCountry(country);
@@ -611,8 +441,7 @@ app.post("/api/export-check", (req, res) => {
     risk_reason: pack.risk_reason,
 
     journey_stage: pack.journey_stage,
-    recommended_incoterm:
-      String(experience).toLowerCase() === "beginner" ? "DAP" : "FOB",
+    recommended_incoterm: String(experience).toLowerCase() === "beginner" ? "DAP" : "FOB",
 
     hs_code_suggestions: [],
     hs_explanations: [],
@@ -629,81 +458,48 @@ app.post("/api/export-check", (req, res) => {
     official_links: [],
   };
 
-  // Beginner warnings
   if (String(experience).toLowerCase() === "beginner") {
     response.warnings.push("Hire a freight forwarder", "Avoid CIF pricing initially");
   }
 
-  // Pack warnings
   response.warnings.push(...(pack.warnings || []));
 
-  // HS suggestions: special case + pack candidates
   const p = String(product).toLowerCase();
   let hs = [];
 
   if (p.includes("t-shirt") || p.includes("tshirt") || p.includes("tee")) {
-    hs.push({
-      code: "6109",
-      description: "T-shirts, singlets and other vests (knitted or crocheted)",
-      confidence: "HIGH",
-    });
+    hs.push({ code: "6109", description: "T-shirts, singlets and other vests (knitted or crocheted)", confidence: "HIGH" });
   }
 
   hs = hs.concat(pack.hsCandidates || []);
   response.hs_code_suggestions = ensureThreeHs(hs, category);
 
-  // HS explanations
   response.hs_explanations = (response.hs_code_suggestions || []).map((x) => ({
     code: x.code,
     why:
-      category === "spices"
-        ? "Matched spice-related keywords; confirm if single spice vs blend."
-        : category === "food"
-        ? "Matched food-related keywords; confirm processing and ingredients."
-        : category === "textile"
-        ? "Matched textile keywords; confirm fabric composition and knit/non-knit."
-        : category === "machinery"
-        ? "Matched machinery keywords; confirm technical specs and end-use."
-        : category === "chemicals"
-        ? "Matched chemical keywords; confirm SDS and hazard classification."
-        : category === "electronics"
-        ? "Matched electronics keywords; confirm radio/Bluetooth and battery details."
-        : category === "medical"
-        ? "Matched medical keywords; confirm conformity and intended use."
-        : "Provide more product details for confident HS classification.",
+      category === "spices" ? "Matched spice-related keywords; confirm if single spice vs blend."
+      : category === "food" ? "Matched food-related keywords; confirm processing and ingredients."
+      : category === "textile" ? "Matched textile keywords; confirm fabric composition and knit/non-knit."
+      : category === "machinery" ? "Matched machinery keywords; confirm technical specs and end-use."
+      : category === "chemicals" ? "Matched chemical keywords; confirm SDS and hazard classification."
+      : category === "electronics" ? "Matched electronics keywords; confirm radio/Bluetooth and battery details."
+      : category === "medical" ? "Matched medical keywords; confirm conformity and intended use."
+      : "Provide more product details for confident HS classification.",
   }));
 
-  // HS note
   if (category === "UNKNOWN") {
-    response.hs_note =
-      "No direct HS match found. Add details (material, composition, use, processing) for better suggestion.";
+    response.hs_note = "No direct HS match found. Add details (material, composition, use, processing) for better suggestion.";
     response.nextSteps.push("Add more product details for better HS classification");
   } else {
-    response.hs_note =
-      "HS code suggestions are guidance only. Confirm final HS code with a customs broker or official tariff tool.";
+    response.hs_note = "HS code suggestions are guidance only. Confirm final HS code with a customs broker or official tariff tool.";
   }
 
-  // Universal next steps
-  response.nextSteps.push(
-    "Confirm HS code",
-    "Talk to logistics partner",
-    "Confirm importer/buyer details"
-  );
+  response.nextSteps.push("Confirm HS code", "Talk to logistics partner", "Confirm importer/buyer details");
 
-  // Default global rules
   response.country_rules.push(
-    {
-      title: "Importer of Record",
-      detail: "Confirm who is the Importer of Record for the shipment.",
-    },
-    {
-      title: "Tariff & Duties",
-      detail: "Duties/VAT depend on HS code and origin. Confirm using official tariff tools.",
-    },
-    {
-      title: "Invoice accuracy",
-      detail: "Invoice must match packing list and include HS, incoterm, values, origin, and currency.",
-    }
+    { title: "Importer of Record", detail: "Confirm who is the Importer of Record for the shipment." },
+    { title: "Tariff & Duties", detail: "Duties/VAT depend on HS code and origin. Confirm using official tariff tools." },
+    { title: "Invoice accuracy", detail: "Invoice must match packing list and include HS, incoterm, values, origin, and currency." }
   );
 
   response.compliance_checklist.push(
@@ -718,18 +514,10 @@ app.post("/api/export-check", (req, res) => {
     { label: "UN/CEFACT trade facilitation", url: "https://unece.org/trade/cefact" }
   );
 
-  // Category-specific extra warnings (optional)
-  if (category === "electronics") {
-    response.warnings.push("If the product uses Bluetooth/radio, check destination conformity approvals.");
-  }
-  if (category === "chemicals") {
-    response.warnings.push("If hazardous, confirm dangerous goods (DG) transport rules with your forwarder.");
-  }
-  if (category === "medical") {
-    response.warnings.push("Confirm conformity markings/certificates required in the destination market.");
-  }
+  if (category === "electronics") response.warnings.push("If the product uses Bluetooth/radio, check destination conformity approvals.");
+  if (category === "chemicals") response.warnings.push("If hazardous, confirm dangerous goods (DG) transport rules with your forwarder.");
+  if (category === "medical") response.warnings.push("Confirm conformity markings/certificates required in the destination market.");
 
-  // UK pack
   if (dest === "uk") {
     if (!response.documents.includes("EORI Number")) response.documents.push("EORI Number");
 
@@ -738,18 +526,9 @@ app.post("/api/export-check", (req, res) => {
     response.official_links = [];
 
     response.country_rules.push(
-      {
-        title: "Importer of Record",
-        detail: "Confirm who is the Importer of Record in the UK (buyer, agent, or broker).",
-      },
-      {
-        title: "Tariff & Duties",
-        detail: "Duties/VAT depend on HS code and origin. Confirm with the UK Trade Tariff.",
-      },
-      {
-        title: "Invoice accuracy",
-        detail: "Invoice must match packing list and include HS, incoterm, values, origin, and currency.",
-      }
+      { title: "Importer of Record", detail: "Confirm who is the Importer of Record in the UK (buyer, agent, or broker)." },
+      { title: "Tariff & Duties", detail: "Duties/VAT depend on HS code and origin. Confirm with the UK Trade Tariff." },
+      { title: "Invoice accuracy", detail: "Invoice must match packing list and include HS, incoterm, values, origin, and currency." }
     );
 
     response.compliance_checklist.push(
@@ -765,7 +544,6 @@ app.post("/api/export-check", (req, res) => {
       { label: "Import goods into the UK (GOV.UK)", url: "https://www.gov.uk/import-goods-into-uk" }
     );
 
-    // UK food compliance (food + spices)
     if (category === "food" || category === "spices") {
       response.journey_stage = "UK_FOOD_COMPLIANCE";
 
@@ -774,16 +552,8 @@ app.post("/api/export-check", (req, res) => {
       }
 
       response.country_rules.push(
-        {
-          title: "Food labeling",
-          detail:
-            "UK food imports must comply with labeling rules (ingredients, allergens, net weight, expiry/best-before, importer details).",
-        },
-        {
-          title: "Ingredients & allergens",
-          detail:
-            "Maintain a clear ingredient list and allergen statement. Keep a product spec sheet ready.",
-        }
+        { title: "Food labeling", detail: "UK food imports must comply with labeling rules (ingredients, allergens, net weight, expiry/best-before, importer details)." },
+        { title: "Ingredients & allergens", detail: "Maintain a clear ingredient list and allergen statement. Keep a product spec sheet ready." }
       );
 
       response.compliance_checklist.push(
@@ -797,22 +567,10 @@ app.post("/api/export-check", (req, res) => {
         { label: "Food Standards Agency (UK)", url: "https://www.food.gov.uk/" }
       );
     }
-
-    // UK medical hint
-    if (category === "medical") {
-      response.country_rules.push({
-        title: "UK Conformity (UKCA/CE)",
-        detail:
-          "Medical/PPE may require UKCA/CE conformity documentation depending on product type and use.",
-      });
-    }
   }
 
-  // Ensure warnings never empty
   if (!response.warnings.length) {
-    response.warnings.push(
-      "Regulations vary by destination—verify local import rules before shipment."
-    );
+    response.warnings.push("Regulations vary by destination—verify local import rules before shipment.");
   }
 
   res.json(response);
@@ -820,17 +578,12 @@ app.post("/api/export-check", (req, res) => {
 
 /* =========================
    REPORTS API (SUPABASE)
-   Table: export_reports
-   Must have column: result (jsonb)
 ========================= */
-
-// SAVE report
 app.post("/api/reports", async (req, res) => {
   const auth = await requireUser(req);
   if (auth.error) return res.status(401).json({ error: auth.error });
 
   const { product, country, experience, result, lockedHs } = req.body;
-
   if (!product || !country || !experience || !result || !lockedHs?.code) {
     return res.status(400).json({ error: "Missing required report data" });
   }
@@ -846,7 +599,7 @@ app.post("/api/reports", async (req, res) => {
     risk_level: result.risk_level || "",
     incoterm: result.recommended_incoterm || "",
     journey_stage: result.journey_stage || "",
-    result, // keep everything inside jsonb
+    result,
   };
 
   const { data, error } = await supabaseAdmin
@@ -860,16 +613,13 @@ app.post("/api/reports", async (req, res) => {
   res.json({ ok: true, reportId: data.id });
 });
 
-// LIST reports
 app.get("/api/reports", async (req, res) => {
   const auth = await requireUser(req);
   if (auth.error) return res.status(401).json({ error: auth.error });
 
   const { data, error } = await supabaseAdmin
     .from("export_reports")
-    .select(
-      "id, product, country, experience, hs_code, hs_description, risk_level, incoterm, journey_stage, result, created_at"
-    )
+    .select("id, product, country, experience, hs_code, hs_description, risk_level, incoterm, journey_stage, result, created_at")
     .eq("user_id", auth.user.id)
     .order("created_at", { ascending: false })
     .limit(50);
@@ -879,7 +629,6 @@ app.get("/api/reports", async (req, res) => {
   res.json({ ok: true, reports: data || [] });
 });
 
-// GET one report
 app.get("/api/reports/:id", async (req, res) => {
   const auth = await requireUser(req);
   if (auth.error) return res.status(401).json({ error: auth.error });
@@ -898,7 +647,6 @@ app.get("/api/reports/:id", async (req, res) => {
   res.json({ ok: true, report: data });
 });
 
-// DELETE report
 app.delete("/api/reports/:id", async (req, res) => {
   const auth = await requireUser(req);
   if (auth.error) return res.status(401).json({ error: auth.error });
