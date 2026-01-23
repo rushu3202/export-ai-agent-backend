@@ -59,89 +59,71 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
    STRIPE WEBHOOK ✅ raw BEFORE express.json()
    Endpoint: POST /api/stripe/webhook
 ========================= */
-app.post(
-  "/api/stripe/webhook",
-  express.raw({ type: "application/json" }),
-  async (req, res) => {
+// =========================
+// STRIPE WEBHOOK (must be BEFORE express.json())
+// =========================
+app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async (req, res) => {
+  try {
+    const sig = req.headers["stripe-signature"];
+    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+
+    if (!webhookSecret) return res.status(500).send("Missing STRIPE_WEBHOOK_SECRET");
+    if (!sig) return res.status(400).send("Missing stripe-signature header");
+
+    let event;
     try {
-      const sig = req.headers["stripe-signature"];
-      const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
-
-      if (!webhookSecret) {
-        console.error("Missing STRIPE_WEBHOOK_SECRET env var.");
-        return res.status(500).send("Missing STRIPE_WEBHOOK_SECRET");
-      }
-
-      let event;
-      try {
-        event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
-      } catch (err) {
-        console.error("❌ Stripe signature verify failed:", err.message);
-        return res.status(400).send(`Webhook Error: ${err.message}`);
-      }
-
-      const setPaidByEmail = async (email, paid) => {
-        if (!email) return;
-
-        // Update existing profile (your app already creates profile at login)
-        const { data, error } = await supabaseAdmin
-          .from("user_profiles")
-          .update({
-            is_paid: paid,
-            paid_at: paid ? new Date().toISOString() : null,
-          })
-          .eq("email", email)
-          .select("id,email,is_paid");
-
-        if (error) {
-          console.error("❌ Supabase update error:", error.message);
-          return;
-        }
-
-        if (!data || data.length === 0) {
-          console.warn(
-            "⚠️ No user_profiles row matched this email. Make sure profile is created on signup/login:",
-            email
-          );
-        } else {
-          console.log("✅ Updated user_profiles:", data);
-        }
-      };
-
-      // ---- Handle events ----
-      if (event.type === "checkout.session.completed") {
-        const session = event.data.object;
-        const email =
-          session?.customer_details?.email ||
-          session?.customer_email ||
-          session?.customer_details?.name || // fallback, rarely useful
-          null;
-
-        console.log("✅ checkout.session.completed for", email);
-        await setPaidByEmail(email, true);
-      }
-
-      if (event.type === "invoice.payment_succeeded") {
-        const invoice = event.data.object;
-        const email = invoice?.customer_email || null;
-
-        console.log("✅ invoice.payment_succeeded for", email);
-        await setPaidByEmail(email, true);
-      }
-
-      // Optional: if you want to auto-disable when subscription cancels,
-      // you need mapping customer_id -> email (next step)
-      if (event.type === "customer.subscription.deleted") {
-        console.log("⚠️ customer.subscription.deleted received (needs customer mapping to email).");
-      }
-
-      return res.json({ received: true });
-    } catch (e) {
-      console.error("❌ Webhook handler error:", e);
-      return res.status(500).send("Webhook handler failed");
+      event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
+    } catch (err) {
+      console.error("❌ Stripe signature verify failed:", err.message);
+      return res.status(400).send(`Webhook Error: ${err.message}`);
     }
+
+    const setPaidByEmail = async (email, paid) => {
+      if (!email) return;
+
+      // ✅ update existing user profile created at signup (id already exists)
+      const { data, error } = await supabaseAdmin
+        .from("user_profiles")
+        .update({
+          is_paid: paid,
+          paid_at: paid ? new Date().toISOString() : null,
+        })
+        .eq("email", email)
+        .select("id,email,is_paid")
+        .single();
+
+      if (error) {
+        console.error("❌ Supabase update error:", error.message);
+      } else {
+        console.log("✅ Updated user_profiles:", data);
+      }
+    };
+
+    if (event.type === "checkout.session.completed") {
+      const session = event.data.object;
+      const email = session?.customer_details?.email || session?.customer_email || null;
+      console.log("✅ checkout.session.completed email:", email);
+      await setPaidByEmail(email, true);
+    }
+
+    if (event.type === "invoice.payment_succeeded") {
+      const invoice = event.data.object;
+      const email = invoice?.customer_email || null;
+      console.log("✅ invoice.payment_succeeded email:", email);
+      await setPaidByEmail(email, true);
+    }
+
+    // optional (later): handle cancellations
+    if (event.type === "customer.subscription.deleted") {
+      console.log("⚠️ subscription deleted (not auto-unlocking in MVP yet)");
+    }
+
+    return res.json({ received: true });
+  } catch (e) {
+    console.error("❌ Webhook handler error:", e);
+    return res.status(500).send("Webhook handler failed");
   }
-);
+});
 
 /* =========================
    JSON body parser (AFTER webhook)
