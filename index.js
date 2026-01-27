@@ -401,6 +401,117 @@ function categoryPack(category) {
   }
 }
 
+function getCountryPack(dest, category) {
+  // dest = normalized country like "uk", "us", "germany"
+  // category = textile/spices/chemicals/electronics/etc.
+
+  // default (global)
+  const pack = {
+    title: "Global basics",
+    extra_documents: [],
+    extra_checklist: [],
+    extra_rules: [],
+    extra_links: [],
+  };
+
+  // 🇺🇸 USA
+  if (dest === "us" || dest === "usa" || dest === "united states") {
+    pack.title = "USA Compliance Pack";
+
+    pack.extra_checklist.push(
+      "Confirm buyer/importer is Importer of Record (IOR).",
+      "Confirm HS code using US HTS (tariff lookup).",
+      "Ensure invoice shows correct value + Incoterm + country of origin."
+    );
+
+    pack.extra_rules.push(
+      { title: "Country of Origin marking", detail: "Most goods need proper 'Made in ___' marking rules." },
+      { title: "FDA/food/cosmetics", detail: "Food/cosmetics may need FDA compliance depending on product type." }
+    );
+
+    pack.extra_links.push(
+      { label: "US HTS Tariff Lookup", url: "https://hts.usitc.gov/" },
+      { label: "US CBP Import Guidance", url: "https://www.cbp.gov/trade/basic-import-export" }
+    );
+
+    if (category === "food" || category === "spices") {
+      pack.extra_documents.push("Ingredient List + Nutrition/Allergen details (if applicable)");
+      pack.extra_rules.push({ title: "FDA food rules", detail: "Food items may require FDA registration/label compliance." });
+      pack.extra_links.push({ label: "FDA Food", url: "https://www.fda.gov/food" });
+    }
+
+    if (category === "cosmetics") {
+      pack.extra_documents.push("INCI ingredients + claims list");
+      pack.extra_rules.push({ title: "Cosmetics claims", detail: "Avoid medical claims unless compliant; labeling rules apply." });
+      pack.extra_links.push({ label: "FDA Cosmetics", url: "https://www.fda.gov/cosmetics" });
+    }
+
+    return pack;
+  }
+
+  // 🇪🇺 EU (Germany/France/etc.)
+  const euCountries = ["germany", "france", "italy", "spain", "netherlands", "belgium", "poland", "sweden"];
+  if (euCountries.includes(dest) || dest === "eu" || dest === "europe") {
+    pack.title = "EU Compliance Pack";
+
+    pack.extra_documents.push("EORI Number (usually importer)", "CE/Conformity docs if product regulated");
+
+    pack.extra_checklist.push(
+      "Confirm EORI (Importer/Broker).",
+      "Confirm HS code using EU TARIC.",
+      "Confirm VAT/Incoterm handling (DAP/DDP clarity)."
+    );
+
+    pack.extra_rules.push(
+      { title: "EORI", detail: "Importer typically needs an EORI for EU customs clearance." },
+      { title: "CE marking", detail: "Electronics/machinery may require CE compliance depending on product." }
+    );
+
+    pack.extra_links.push(
+      { label: "EU TARIC (duties)", url: "https://taxation-customs.ec.europa.eu/customs-4/customs-tariff/taric_en" }
+    );
+
+    if (category === "electronics") {
+      pack.extra_documents.push("CE Declaration of Conformity (if applicable)", "Battery transport documents (if applicable)");
+      pack.extra_rules.push({ title: "RED/EMC", detail: "Bluetooth/radio devices may need EU radio compliance (RED)." });
+    }
+
+    if (category === "chemicals") {
+      pack.extra_documents.push("SDS/MSDS in required format");
+      pack.extra_rules.push({ title: "REACH/CLP", detail: "Chemicals may require REACH/CLP compliance depending on classification." });
+    }
+
+    return pack;
+  }
+
+  // 🇦🇪 UAE
+  if (dest === "uae" || dest === "united arab emirates" || dest === "dubai") {
+    pack.title = "UAE Compliance Pack";
+
+    pack.extra_checklist.push(
+      "Confirm importer is registered in UAE.",
+      "Confirm HS code and duty rules with UAE customs.",
+      "Ensure invoice + packing list match exactly."
+    );
+
+    pack.extra_rules.push(
+      { title: "Regulated goods", detail: "Some chemicals/cosmetics may require approvals in UAE." }
+    );
+
+    pack.extra_links.push(
+      { label: "Dubai Customs", url: "https://www.dubaicustoms.gov.ae/" }
+    );
+
+    if (category === "chemicals") {
+      pack.extra_documents.push("SDS/MSDS + DG declaration (if hazardous)");
+    }
+
+    return pack;
+  }
+
+  return pack;
+}
+
 app.post("/api/export-check", (req, res) => {
   const { product, country, experience } = req.body;
 
@@ -439,6 +550,16 @@ app.post("/api/export-check", (req, res) => {
     country_rules: [],
     official_links: [],
   };
+  const countryPack = getCountryPack(dest, category);
+
+// attach to response
+response.country_pack = countryPack;
+
+// merge extras into existing arrays
+response.documents = [...new Set([...(response.documents || []), ...(countryPack.extra_documents || [])])];
+response.compliance_checklist = [...new Set([...(response.compliance_checklist || []), ...(countryPack.extra_checklist || [])])];
+response.country_rules = [...(response.country_rules || []), ...(countryPack.extra_rules || [])];
+response.official_links = [...(response.official_links || []), ...(countryPack.extra_links || [])];
 
   if (String(experience).toLowerCase() === "beginner") {
     response.warnings.push("Hire a freight forwarder", "Avoid CIF pricing initially");
