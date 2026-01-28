@@ -520,6 +520,34 @@ app.post("/api/export-check", (req, res) => {
   }
 
   const dest = normalizeCountry(country);
+  function buildCountryPack(dest) {
+  // normalize USA aliases
+  const isUS =
+    dest === "usa" ||
+    dest === "us" ||
+    dest === "united states" ||
+    dest === "united states of america";
+
+  if (dest === "uk" || dest === "united kingdom") {
+    return {
+      title: "UK Rules Pack",
+      badge: "UK-first",
+    };
+  }
+
+  if (isUS) {
+    return {
+      title: "US Rules Pack",
+      badge: "US Pack",
+    };
+  }
+
+  return {
+    title: `${dest.toUpperCase()} Rules Pack`,
+    badge: "Global",
+  };
+}
+
   const category = inferCategory(product);
   const pack = categoryPack(category);
 
@@ -553,7 +581,7 @@ app.post("/api/export-check", (req, res) => {
   const countryPack = getCountryPack(dest, category);
 
 // attach to response
-response.country_pack = countryPack;
+response.country_pack = buildCountryPack(dest);
 
 // merge extras into existing arrays
 response.documents = [...new Set([...(response.documents || []), ...(countryPack.extra_documents || [])])];
