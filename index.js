@@ -703,7 +703,12 @@ response.official_links = [...(response.official_links || []), ...(countryPack.e
   if (!response.warnings.length) {
     response.warnings.push("Regulations vary by destination—verify local import rules before shipment.");
   }
+const destUpper = String(country || "").trim().toUpperCase();
 
+response.country_pack = {
+  title: destUpper === "UK" ? "UK Rules Pack" : destUpper === "USA" ? "US Rules Pack" : `${destUpper} Rules Pack`,
+  badge: destUpper === "UK" ? "UK-first" : destUpper === "USA" ? "US" : destUpper,
+};
   res.json(response);
 });
 
