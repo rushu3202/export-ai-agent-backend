@@ -1,0 +1,14 @@
+app.post("/api/market-opportunity",(req,res)=>{
+
+const {product}=req.body
+
+const markets=[
+{country:"UK",score:84,demand:"High"},
+{country:"Germany",score:77,demand:"High"},
+{country:"USA",score:71,demand:"Medium"},
+{country:"UAE",score:69,demand:"Medium"}
+]
+
+res.json({markets})
+
+})

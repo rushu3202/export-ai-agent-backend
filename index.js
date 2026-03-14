@@ -47,12 +47,13 @@ const supabaseAdmin = createClient(
    STRIPE
 ========================= */
 if (!process.env.STRIPE_SECRET_KEY) {
-  console.error("Missing STRIPE_SECRET_KEY env var.");
-  process.exit(1);
+  console.warn("⚠ Stripe key missing — payments disabled for now.");
 }
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-  apiVersion: "2024-06-20",
+const stripeKey = process.env.STRIPE_SECRET_KEY || "sk_test_placeholder";
+
+const stripe = new Stripe(stripeKey, {
+  apiVersion: "2023-10-16"
 });
 
 /* =========================
@@ -715,6 +716,22 @@ response.country_pack = {
 /* =========================
    REPORTS API (SUPABASE)
 ========================= */
+
+app.post("/api/market-opportunity", (req, res) => {
+
+const { product } = req.body;
+
+const markets = [
+{ country: "UK", score: 84, demand: "High" },
+{ country: "Germany", score: 77, demand: "High" },
+{ country: "USA", score: 71, demand: "Medium" },
+{ country: "UAE", score: 69, demand: "Medium" }
+];
+
+res.json({ markets });
+
+});
+
 app.post("/api/reports", async (req, res) => {
   const auth = await requireUser(req);
   if (auth.error) return res.status(401).json({ error: auth.error });
