@@ -63,6 +63,38 @@ const stripe = new Stripe(stripeKey, {
 // =========================
 // STRIPE WEBHOOK (must be BEFORE express.json())
 // =========================
+
+app.post("/api/find-buyers", (req, res) => {
+  const { product, country } = req.body;
+
+  if (!product || !country) {
+    return res.status(400).json({ error: "Missing product or country" });
+  }
+
+  // TEMP MOCK DATA (working version)
+  const buyers = [
+    {
+      name: "UK Imports Ltd",
+      email: "sales@ukimports.com",
+      country: "UK",
+      type: "Distributor"
+    },
+    {
+      name: "Global Foods Trading",
+      email: "info@globalfoods.com",
+      country: "UK",
+      type: "Wholesaler"
+    },
+    {
+      name: "Fresh Agro Supplies",
+      email: "contact@freshagro.com",
+      country: "UK",
+      type: "Retail Supplier"
+    }
+  ];
+
+  res.json({ buyers });
+});
 app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async (req, res) => {
   try {
     const sig = req.headers["stripe-signature"];
