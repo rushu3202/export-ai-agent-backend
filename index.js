@@ -1,9 +1,20 @@
-// index.js
 import express from "express";
 import cors from "cors";
-import Stripe from "stripe";
 import dotenv from "dotenv";
+import Stripe from "stripe";
+import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
+function extractInfo(text) {
+  const lower = text.toLowerCase();
+
+  const countries = ["uk", "usa", "germany", "uae", "canada"];
+  const foundCountry = countries.find(c => lower.includes(c));
+
+  return {
+    country: foundCountry || null,
+    product: text
+  };
+}
 
 dotenv.config();
 
@@ -11,848 +22,303 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 /* =========================
-   CORS (safe + Vercel-friendly)
-========================= */
-const isAllowedOrigin = (origin) => {
-  if (!origin) return true; // Postman/curl/no-origin
-  if (origin.endsWith(".vercel.app")) return true; // Vercel prod + preview
-  if (origin === "http://localhost:5173" || origin === "http://localhost:3000") return true; // local dev
-  return false;
-};
-
-const corsOptions = {
-  origin: (origin, cb) => cb(null, isAllowedOrigin(origin)),
-  credentials: false, // Bearer token auth, not cookies
-  methods: ["GET", "POST", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "Stripe-Signature"],
-};
-
-app.use(cors(corsOptions));
-app.options("*", cors(corsOptions));
-
-/* =========================
-   SUPABASE (Service Role)  ✅ MUST be before webhook
+   ENV VALIDATION
 ========================= */
 if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
-  console.error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY env vars.");
+  console.error("❌ Missing Supabase env variables");
   process.exit(1);
 }
 
-const supabaseAdmin = createClient(
+/* =========================
+   SERVICES INIT
+========================= */
+const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-/* =========================
-   STRIPE
-========================= */
-if (!process.env.STRIPE_SECRET_KEY) {
-  console.warn("⚠ Stripe key missing — payments disabled for now.");
-}
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "sk_test_placeholder", {
+  apiVersion: "2023-10-16",
+});
 
-const stripeKey = process.env.STRIPE_SECRET_KEY || "sk_test_placeholder";
-
-const stripe = new Stripe(stripeKey, {
-  apiVersion: "2023-10-16"
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
 });
 
 /* =========================
-   STRIPE WEBHOOK ✅ raw BEFORE express.json()
-   Endpoint: POST /api/stripe/webhook
+   CORS
 ========================= */
-// =========================
-// STRIPE WEBHOOK (must be BEFORE express.json())
-// =========================
+const allowedOrigins = [
+  "http://localhost:5173",
+  "http://localhost:3000",
+];
 
-app.post("/api/find-buyers", (req, res) => {
-  const { product, country } = req.body;
-
-  if (!product || !country) {
-    return res.status(400).json({ error: "Missing product or country" });
-  }
-
-  // TEMP MOCK DATA (working version)
-  const buyers = [
-    {
-      name: "UK Imports Ltd",
-      email: "sales@ukimports.com",
-      country: "UK",
-      type: "Distributor"
-    },
-    {
-      name: "Global Foods Trading",
-      email: "info@globalfoods.com",
-      country: "UK",
-      type: "Wholesaler"
-    },
-    {
-      name: "Fresh Agro Supplies",
-      email: "contact@freshagro.com",
-      country: "UK",
-      type: "Retail Supplier"
+const corsOptions = {
+  origin: (origin, cb) => {
+    if (!origin || origin.endsWith(".vercel.app") || allowedOrigins.includes(origin)) {
+      cb(null, true);
+    } else {
+      cb(new Error("Not allowed by CORS"));
     }
-  ];
-
-  res.json({ buyers });
+  },
+};
+app.get("/healthz", (req, res) => {
+  res.status(200).json({ ok: true });
 });
+
+app.use(cors(corsOptions));
+
+/* =========================
+   STRIPE WEBHOOK (RAW BODY)
+========================= */
 app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async (req, res) => {
   try {
     const sig = req.headers["stripe-signature"];
-    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
-
-    if (!webhookSecret) return res.status(500).send("Missing STRIPE_WEBHOOK_SECRET");
-    if (!sig) return res.status(400).send("Missing stripe-signature header");
-
-    let event;
-    try {
-      event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
-    } catch (err) {
-      console.error("❌ Stripe signature verify failed:", err.message);
-      return res.status(400).send(`Webhook Error: ${err.message}`);
-    }
-
-    const setPaidByEmail = async (email, paid) => {
-      if (!email) return;
-
-      // ✅ update existing user profile created at signup (id already exists)
-      const { data, error } = await supabaseAdmin
-        .from("user_profiles")
-        .update({
-          is_paid: paid,
-          paid_at: paid ? new Date().toISOString() : null,
-        })
-        .eq("email", email)
-        .select("id,email,is_paid")
-        .single();
-
-      if (error) {
-        console.error("❌ Supabase update error:", error.message);
-      } else {
-        console.log("✅ Updated user_profiles:", data);
-      }
-    };
+    const event = stripe.webhooks.constructEvent(
+      req.body,
+      sig,
+      process.env.STRIPE_WEBHOOK_SECRET
+    );
 
     if (event.type === "checkout.session.completed") {
       const session = event.data.object;
-      const email = session?.customer_details?.email || session?.customer_email || null;
-      console.log("✅ checkout.session.completed email:", email);
-      await setPaidByEmail(email, true);
+      const email = session.customer_email;
+
+      await supabase
+        .from("user_profiles")
+        .update({ is_paid: true, paid_at: new Date().toISOString() })
+        .eq("email", email);
     }
 
-    if (event.type === "invoice.payment_succeeded") {
-      const invoice = event.data.object;
-      const email = invoice?.customer_email || null;
-      console.log("✅ invoice.payment_succeeded email:", email);
-      await setPaidByEmail(email, true);
-    }
-
-    // optional (later): handle cancellations
-    if (event.type === "customer.subscription.deleted") {
-      console.log("⚠️ subscription deleted (not auto-unlocking in MVP yet)");
-    }
-
-    return res.json({ received: true });
-  } catch (e) {
-    console.error("❌ Webhook handler error:", e);
-    return res.status(500).send("Webhook handler failed");
+    res.json({ received: true });
+  } catch (err) {
+    console.error(err.message);
+    res.status(400).send("Webhook error");
   }
 });
 
 /* =========================
-   JSON body parser (AFTER webhook)
+   JSON PARSER (AFTER WEBHOOK)
 ========================= */
-app.use(express.json({ limit: "1mb" }));
+app.use(express.json());
 
 /* =========================
    HEALTH
 ========================= */
-app.get("/", (req, res) =>
-  res.json({ status: "Export Agent Backend is running ✅" })
-);
-
-app.get("/healthz", (req, res) => res.status(200).json({ ok: true }));
-
-app.get("/api/health", (req, res) =>
-  res.status(200).json({ ok: true, service: "export-ai-agent-backend" })
-);
+app.get("/", (req, res) => {
+  res.json({ status: "✅ Export AI Agent Backend Running" });
+});
 
 /* =========================
    AUTH HELPER
 ========================= */
 async function requireUser(req) {
-  const auth = req.headers.authorization || "";
-  const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
+  const token = req.headers.authorization?.replace("Bearer ", "");
 
-  if (!token) return { error: "Missing Authorization token" };
+  if (!token) return { error: "No token" };
 
-  const { data, error } = await supabaseAdmin.auth.getUser(token);
-  if (error || !data?.user) return { error: "Invalid or expired token" };
+  const { data, error } = await supabase.auth.getUser(token);
+
+  if (error || !data.user) return { error: "Invalid token" };
 
   return { user: data.user };
 }
+app.post("/api/chat", async (req, res) => {
+  try {
+    const { messages } = req.body;
+
+    if (!messages || !messages.length) {
+      return res.status(400).json({ error: "Messages required" });
+    }
+
+    const lastMessage = messages[messages.length - 1].content.toLowerCase();
+
+    console.log("Incoming:", lastMessage);
+
+    let data;
+
+    if (lastMessage.includes("makhana")) {
+      data = {
+        demand: "High demand in UK health food market",
+        profit: "40–60% margins",
+        risks: [
+          "Food compliance required",
+          "Shelf life management",
+          "Import regulations"
+        ],
+        steps: [
+          "Get FSSAI certification",
+          "Use export packaging",
+          "Find UK distributor",
+          "Start with small shipment"
+        ],
+        recommendation: "Strong niche opportunity in health market"
+      };
+    } else {
+      data = {
+        demand: "Depends on product and country",
+        profit: "20–40%",
+        risks: ["Market competition"],
+        steps: ["Research market", "Find buyers"],
+        recommendation: "Provide more details"
+      };
+    }
+
+    res.json(data);
+
+  } catch (err) {
+    console.error("CHAT ERROR:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+/* =========================
+   AI: FIND BUYERS
+========================= */
+app.post("/api/ai-buyers", async (req, res) => {
+  const { product, country } = req.body;
+
+  if (!product || !country) {
+    return res.status(400).json({ error: "Missing data" });
+  }
+  console.log("Incoming request:", req.body); 
+
+  try {
+    const prompt = `
+Find 5 real companies in ${country} that import ${product}.
+Return JSON:
+[{ name, type, reason, message }]
+`;
+
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [{ role: "user", content: prompt }],
+    });
+
+    let buyers = [];
+
+    try {
+      buyers = JSON.parse(response.choices[0].message.content);
+    } catch {
+      buyers = [];
+    }
+    console.log("AI RAW RESPONSE:", aiText);
+
+    res.json({ buyers });
+  } catch (err) {
+    res.status(500).json({ error: "AI failed" });
+  }
+});
 
 /* =========================
-   EXPORT READINESS CHECK
+   EXPORT CHECK (CORE FEATURE)
 ========================= */
-function normalizeCountry(country) {
-  return String(country || "")
-    .trim()
-    .toLowerCase()
-    .replace(/\./g, "")
-    .replace(/,/g, "")
-    .replace(/\s+/g, " ");
-}
-
-function inferCategory(product) {
-  const p = String(product || "").toLowerCase();
-
-  const spiceKeys = [
-    "spice","spices","masala","turmeric","haldi","chilli","chili","pepper","cumin","jeera","coriander","dhania",
-  ];
-  if (spiceKeys.some((k) => p.includes(k))) return "spices";
-
-  const textileKeys = [
-    "t-shirt","tshirt","tee","shirt","hoodie","sweater","cotton","garment","clothing","apparel","textile","fabric",
-  ];
-  if (textileKeys.some((k) => p.includes(k))) return "textile";
-
-  const foodKeys = ["food", "snack", "makhana", "fox nut", "nuts", "dry fruit"];
-  if (foodKeys.some((k) => p.includes(k))) return "food";
-
-  const machineKeys = ["machine","machinery","cnc","gear","bearing","spare","part","valve","pump","motor","compressor"];
-  if (machineKeys.some((k) => p.includes(k))) return "machinery";
-
-  const chemKeys = ["solvent","chemical","cleaner","acid","alkali","detergent","paint","adhesive","resin","flammable","hazard"];
-  if (chemKeys.some((k) => p.includes(k))) return "chemicals";
-
-  const elecKeys = ["bluetooth","speaker","headphone","earphone","charger","battery","electronics","pcb","circuit","wireless","radio"];
-  if (elecKeys.some((k) => p.includes(k))) return "electronics";
-
-  const furnKeys = ["table","chair","sofa","furniture","wood","timber","cabinet","bed","dining"];
-  if (furnKeys.some((k) => p.includes(k))) return "furniture";
-
-  const cosKeys = ["cosmetic","cream","lotion","skincare","skin care","makeup","shampoo","soap","beauty"];
-  if (cosKeys.some((k) => p.includes(k))) return "cosmetics";
-
-  const medKeys = ["mask","surgical","medical","ppe","glove","bandage","thermometer","diagnostic"];
-  if (medKeys.some((k) => p.includes(k))) return "medical";
-
-  return "UNKNOWN";
-}
-
-function uniqHs(list) {
-  const seen = new Set();
-  const out = [];
-  for (const x of list || []) {
-    if (!x?.code) continue;
-    if (seen.has(x.code)) continue;
-    seen.add(x.code);
-    out.push(x);
-  }
-  return out;
-}
-
-function ensureThreeHs(suggestions, category) {
-  const base = uniqHs(suggestions);
-
-  const generic = [
-    { code: "8479", description: "Machines and mechanical appliances (generic)", confidence: "LOW" },
-    { code: "3926", description: "Other articles of plastics (generic)", confidence: "LOW" },
-    { code: "7326", description: "Other articles of iron or steel (generic)", confidence: "LOW" },
-  ];
-
-  if (category === "UNKNOWN") {
-    base.push({ code: "UNKNOWN", description: "Needs classification — provide composition/use/processing", confidence: "LOW" });
-  }
-
-  const merged = uniqHs([...base, ...generic]);
-  while (merged.length < 3) merged.push(generic[2]);
-
-  return merged.slice(0, 3);
-}
-
-function categoryPack(category) {
-  const base = {
-    risk_level: "MEDIUM",
-    risk_reason: "Standard export flow; confirm HS code and destination rules.",
-    journey_stage: "DOCS",
-    documents: [
-      "Commercial Invoice",
-      "Packing List",
-      "Certificate of Origin",
-      "Product Specification Sheet (materials, composition, use)",
-    ],
-    warnings: [],
-    hsCandidates: [],
-  };
-
-  switch (category) {
-    case "textile":
-      return {
-        ...base,
-        risk_level: "LOW",
-        risk_reason: "Textile exports are usually straightforward if composition and labeling are correct.",
-        documents: [...base.documents, "Fabric Composition Certificate (if available)"],
-        warnings: ["Confirm fabric composition (e.g., 100% cotton vs blends) for correct HS code."],
-        hsCandidates: [
-          { code: "6109", description: "T-shirts, singlets and other vests (knitted or crocheted)", confidence: "HIGH" },
-          { code: "6205", description: "Men’s or boys’ shirts (not knitted)", confidence: "MEDIUM" },
-          { code: "6110", description: "Sweaters, pullovers and similar articles (knitted)", confidence: "LOW" },
-        ],
-      };
-
-    case "spices":
-      return {
-        ...base,
-        risk_level: "MEDIUM",
-        risk_reason: "Spices require correct HS chapter + labeling/ingredient details; may trigger food compliance checks.",
-        journey_stage: "FOOD_COMPLIANCE",
-        documents: [...base.documents, "Ingredients / Product Specification Sheet", "Label Artwork / Label Text (if available)"],
-        warnings: ["Spices/blends may require labeling + allergen statements (if blended/processed)."],
-        hsCandidates: [
-          { code: "0904", description: "Pepper (capsicum/pimenta), dried or crushed", confidence: "MEDIUM" },
-          { code: "0910", description: "Ginger, saffron, turmeric, thyme, bay leaves, curry and other spices", confidence: "HIGH" },
-          { code: "0909", description: "Seeds of anise, badian, fennel, coriander, cumin, caraway, juniper", confidence: "MEDIUM" },
-        ],
-      };
-
-    case "food":
-      return {
-        ...base,
-        risk_level: "MEDIUM",
-        risk_reason: "Food exports often require labeling, allergen, shelf-life and destination compliance checks.",
-        journey_stage: "FOOD_COMPLIANCE",
-        documents: [...base.documents, "Ingredients / Product Specification Sheet", "Label Artwork / Label Text (if available)"],
-        warnings: ["Food exports may require labeling/allergen/shelf-life checks depending on destination rules."],
-        hsCandidates: [
-          { code: "2008", description: "Fruits, nuts and other edible parts of plants, otherwise prepared or preserved", confidence: "MEDIUM" },
-          { code: "2106", description: "Food preparations not elsewhere specified", confidence: "LOW" },
-          { code: "1905", description: "Bread, pastry, cakes, biscuits and other baked goods", confidence: "LOW" },
-        ],
-      };
-
-    case "machinery":
-      return {
-        ...base,
-        risk_level: "MEDIUM",
-        risk_reason: "Machinery/parts need precise technical specs and end-use for classification.",
-        journey_stage: "TECH_DOCS",
-        documents: [...base.documents, "Technical Datasheet / Manual", "End-use / Function Description"],
-        warnings: ["Machines/parts often need clear technical specs and end-use to classify correctly."],
-        hsCandidates: [
-          { code: "8466", description: "Parts and accessories for machine-tools", confidence: "MEDIUM" },
-          { code: "8483", description: "Transmission shafts, gears and gearing; parts", confidence: "LOW" },
-          { code: "8479", description: "Machines and mechanical appliances (other)", confidence: "LOW" },
-        ],
-      };
-
-    case "chemicals":
-      return {
-        ...base,
-        risk_level: "HIGH",
-        risk_reason: "Chemicals may be regulated and require SDS + dangerous goods compliance.",
-        journey_stage: "HAZMAT",
-        documents: [...base.documents, "Safety Data Sheet (SDS/MSDS)", "Hazard Classification / UN number (if applicable)"],
-        warnings: ["Chemicals may be regulated as dangerous goods; SDS and transport compliance are critical."],
-        hsCandidates: [
-          { code: "3814", description: "Organic composite solvents and thinners; prepared paint/varnish removers", confidence: "LOW" },
-          { code: "3402", description: "Organic surface-active agents; washing preparations", confidence: "LOW" },
-          { code: "2905", description: "Acyclic alcohols and their derivatives", confidence: "LOW" },
-        ],
-      };
-
-    case "electronics":
-      return {
-        ...base,
-        risk_level: "MEDIUM",
-        risk_reason: "Electronics can require conformity approvals and battery transport documentation.",
-        journey_stage: "REGULATORY",
-        documents: [...base.documents, "Technical Specs Sheet", "Battery Transport Declaration (if applicable)"],
-        warnings: ["Electronics may require destination approvals (e.g., radio/Bluetooth conformity, battery transport rules)."],
-        hsCandidates: [
-          { code: "8518", description: "Microphones and loudspeakers; audio-frequency amplifiers; parts", confidence: "MEDIUM" },
-          { code: "8517", description: "Telephone/radio communication apparatus; parts", confidence: "LOW" },
-          { code: "8504", description: "Electrical transformers, converters, power supplies", confidence: "LOW" },
-        ],
-      };
-
-    case "furniture":
-      return {
-        ...base,
-        risk_level: "LOW",
-        risk_reason: "Furniture is typically low risk but wood/packaging can require ISPM-15 compliance.",
-        journey_stage: "DOCS",
-        documents: [...base.documents, "Material Composition Declaration (wood type/finish)", "Packaging/ISPM-15 statement (if wood packaging)"],
-        warnings: ["Wood/packaging may need ISPM-15 compliance depending on destination and packaging type."],
-        hsCandidates: [
-          { code: "9403", description: "Other furniture and parts thereof", confidence: "MEDIUM" },
-          { code: "9401", description: "Seats and parts thereof", confidence: "LOW" },
-          { code: "4419", description: "Tableware and kitchenware, of wood", confidence: "LOW" },
-        ],
-      };
-
-    case "cosmetics":
-      return {
-        ...base,
-        risk_level: "MEDIUM",
-        risk_reason: "Cosmetics often require strict labeling/claims compliance in destination markets.",
-        journey_stage: "LABEL_REVIEW",
-        documents: [...base.documents, "Ingredients (INCI) List", "Labeling & Claims Documentation"],
-        warnings: ["Cosmetics often require strict labeling/claims compliance; verify destination cosmetic rules."],
-        hsCandidates: [
-          { code: "3304", description: "Beauty or make-up preparations and preparations for skin care", confidence: "MEDIUM" },
-          { code: "3401", description: "Soap; organic surface-active products and preparations", confidence: "LOW" },
-          { code: "3305", description: "Preparations for use on the hair", confidence: "LOW" },
-        ],
-      };
-
-    case "medical":
-      return {
-        ...base,
-        risk_level: "HIGH",
-        risk_reason: "Medical/PPE often requires conformity documentation and quality certificates.",
-        journey_stage: "MEDICAL_COMPLIANCE",
-        documents: [...base.documents, "Quality Certificates (ISO, CE/UKCA, etc.)", "Product Technical File (if applicable)"],
-        warnings: ["Medical/PPE may require conformity markings and additional documentation depending on destination."],
-        hsCandidates: [
-          { code: "6307", description: "Other made up textile articles (includes many masks)", confidence: "MEDIUM" },
-          { code: "9018", description: "Instruments and appliances used in medical/surgical sciences", confidence: "LOW" },
-          { code: "9020", description: "Breathing appliances and gas masks (excluding protective masks without mechanical parts)", confidence: "LOW" },
-        ],
-      };
-
-    default:
-      return {
-        ...base,
-        risk_level: "MEDIUM",
-        risk_reason: "Not enough details to classify confidently. Provide composition/material/use.",
-        journey_stage: "DETAILS_NEEDED",
-        documents: [...base.documents, "Detailed Product Description (use, composition, processing)"],
-        warnings: ["More product details needed to classify correctly (composition, use, processing, materials)."],
-        hsCandidates: [],
-      };
-  }
-}
-
-function getCountryPack(dest, category) {
-  // dest = normalized country like "uk", "us", "germany"
-  // category = textile/spices/chemicals/electronics/etc.
-
-  // default (global)
-  const pack = {
-    title: "Global basics",
-    extra_documents: [],
-    extra_checklist: [],
-    extra_rules: [],
-    extra_links: [],
-  };
-
-  // 🇺🇸 USA
-  if (dest === "us" || dest === "usa" || dest === "united states") {
-    pack.title = "USA Compliance Pack";
-
-    pack.extra_checklist.push(
-      "Confirm buyer/importer is Importer of Record (IOR).",
-      "Confirm HS code using US HTS (tariff lookup).",
-      "Ensure invoice shows correct value + Incoterm + country of origin."
-    );
-
-    pack.extra_rules.push(
-      { title: "Country of Origin marking", detail: "Most goods need proper 'Made in ___' marking rules." },
-      { title: "FDA/food/cosmetics", detail: "Food/cosmetics may need FDA compliance depending on product type." }
-    );
-
-    pack.extra_links.push(
-      { label: "US HTS Tariff Lookup", url: "https://hts.usitc.gov/" },
-      { label: "US CBP Import Guidance", url: "https://www.cbp.gov/trade/basic-import-export" }
-    );
-
-    if (category === "food" || category === "spices") {
-      pack.extra_documents.push("Ingredient List + Nutrition/Allergen details (if applicable)");
-      pack.extra_rules.push({ title: "FDA food rules", detail: "Food items may require FDA registration/label compliance." });
-      pack.extra_links.push({ label: "FDA Food", url: "https://www.fda.gov/food" });
-    }
-
-    if (category === "cosmetics") {
-      pack.extra_documents.push("INCI ingredients + claims list");
-      pack.extra_rules.push({ title: "Cosmetics claims", detail: "Avoid medical claims unless compliant; labeling rules apply." });
-      pack.extra_links.push({ label: "FDA Cosmetics", url: "https://www.fda.gov/cosmetics" });
-    }
-
-    return pack;
-  }
-
-  // 🇪🇺 EU (Germany/France/etc.)
-  const euCountries = ["germany", "france", "italy", "spain", "netherlands", "belgium", "poland", "sweden"];
-  if (euCountries.includes(dest) || dest === "eu" || dest === "europe") {
-    pack.title = "EU Compliance Pack";
-
-    pack.extra_documents.push("EORI Number (usually importer)", "CE/Conformity docs if product regulated");
-
-    pack.extra_checklist.push(
-      "Confirm EORI (Importer/Broker).",
-      "Confirm HS code using EU TARIC.",
-      "Confirm VAT/Incoterm handling (DAP/DDP clarity)."
-    );
-
-    pack.extra_rules.push(
-      { title: "EORI", detail: "Importer typically needs an EORI for EU customs clearance." },
-      { title: "CE marking", detail: "Electronics/machinery may require CE compliance depending on product." }
-    );
-
-    pack.extra_links.push(
-      { label: "EU TARIC (duties)", url: "https://taxation-customs.ec.europa.eu/customs-4/customs-tariff/taric_en" }
-    );
-
-    if (category === "electronics") {
-      pack.extra_documents.push("CE Declaration of Conformity (if applicable)", "Battery transport documents (if applicable)");
-      pack.extra_rules.push({ title: "RED/EMC", detail: "Bluetooth/radio devices may need EU radio compliance (RED)." });
-    }
-
-    if (category === "chemicals") {
-      pack.extra_documents.push("SDS/MSDS in required format");
-      pack.extra_rules.push({ title: "REACH/CLP", detail: "Chemicals may require REACH/CLP compliance depending on classification." });
-    }
-
-    return pack;
-  }
-
-  // 🇦🇪 UAE
-  if (dest === "uae" || dest === "united arab emirates" || dest === "dubai") {
-    pack.title = "UAE Compliance Pack";
-
-    pack.extra_checklist.push(
-      "Confirm importer is registered in UAE.",
-      "Confirm HS code and duty rules with UAE customs.",
-      "Ensure invoice + packing list match exactly."
-    );
-
-    pack.extra_rules.push(
-      { title: "Regulated goods", detail: "Some chemicals/cosmetics may require approvals in UAE." }
-    );
-
-    pack.extra_links.push(
-      { label: "Dubai Customs", url: "https://www.dubaicustoms.gov.ae/" }
-    );
-
-    if (category === "chemicals") {
-      pack.extra_documents.push("SDS/MSDS + DG declaration (if hazardous)");
-    }
-
-    return pack;
-  }
-
-  return pack;
-}
-
 app.post("/api/export-check", (req, res) => {
-  const { product, country, experience } = req.body;
-
-  if (!product || !country || !experience) {
-    return res.status(400).json({ error: "Product, country, and experience are required" });
-  }
-
-  const dest = normalizeCountry(country);
-  function buildCountryPack(dest) {
-  // normalize USA aliases
-  const isUS =
-    dest === "usa" ||
-    dest === "us" ||
-    dest === "united states" ||
-    dest === "united states of america";
-
-  if (dest === "uk" || dest === "united kingdom") {
-    return {
-      title: "UK Rules Pack",
-      badge: "UK-first",
-    };
-  }
-
-  if (isUS) {
-    return {
-      title: "US Rules Pack",
-      badge: "US Pack",
-    };
-  }
-
-  return {
-    title: `${dest.toUpperCase()} Rules Pack`,
-    badge: "Global",
-  };
-}
-
+  const { product, country } = req.body;
+  function generateExportAnalysis(product, country, experience = "beginner") {
   const category = inferCategory(product);
   const pack = categoryPack(category);
 
-  const response = {
+  return {
     product,
     country,
-    experience,
-    allowed: true,
-
-    product_category: category,
-    risk_level: pack.risk_level,
-    risk_reason: pack.risk_reason,
-
-    journey_stage: pack.journey_stage,
-    recommended_incoterm: String(experience).toLowerCase() === "beginner" ? "DAP" : "FOB",
-
-    hs_code_suggestions: [],
-    hs_explanations: [],
-    hs_note: "",
-
-    documents: [...new Set(pack.documents || [])],
-    document_reasons: [],
-
-    warnings: [],
-    nextSteps: [],
-
-    compliance_checklist: [],
-    country_rules: [],
-    official_links: [],
+    category,
+    risk: pack.risk_level,
+    documents: pack.documents,
+    warnings: pack.warnings,
+    hs: pack.hsCandidates,
   };
-  const countryPack = getCountryPack(dest, category);
+}
 
-// attach to response
-response.country_pack = buildCountryPack(dest);
-
-// merge extras into existing arrays
-response.documents = [...new Set([...(response.documents || []), ...(countryPack.extra_documents || [])])];
-response.compliance_checklist = [...new Set([...(response.compliance_checklist || []), ...(countryPack.extra_checklist || [])])];
-response.country_rules = [...(response.country_rules || []), ...(countryPack.extra_rules || [])];
-response.official_links = [...(response.official_links || []), ...(countryPack.extra_links || [])];
-
-  if (String(experience).toLowerCase() === "beginner") {
-    response.warnings.push("Hire a freight forwarder", "Avoid CIF pricing initially");
+  if (!product || !country) {
+    return res.status(400).json({ error: "Missing fields" });
   }
 
-  response.warnings.push(...(pack.warnings || []));
+  let result;
 
-  const p = String(product).toLowerCase();
-  let hs = [];
+  const p = product.toLowerCase();
 
-  if (p.includes("t-shirt") || p.includes("tshirt") || p.includes("tee")) {
-    hs.push({ code: "6109", description: "T-shirts, singlets and other vests (knitted or crocheted)", confidence: "HIGH" });
-  }
-
-  hs = hs.concat(pack.hsCandidates || []);
-  response.hs_code_suggestions = ensureThreeHs(hs, category);
-
-  response.hs_explanations = (response.hs_code_suggestions || []).map((x) => ({
-    code: x.code,
-    why:
-      category === "spices" ? "Matched spice-related keywords; confirm if single spice vs blend."
-      : category === "food" ? "Matched food-related keywords; confirm processing and ingredients."
-      : category === "textile" ? "Matched textile keywords; confirm fabric composition and knit/non-knit."
-      : category === "machinery" ? "Matched machinery keywords; confirm technical specs and end-use."
-      : category === "chemicals" ? "Matched chemical keywords; confirm SDS and hazard classification."
-      : category === "electronics" ? "Matched electronics keywords; confirm radio/Bluetooth and battery details."
-      : category === "medical" ? "Matched medical keywords; confirm conformity and intended use."
-      : "Provide more product details for confident HS classification.",
-  }));
-
-  if (category === "UNKNOWN") {
-    response.hs_note = "No direct HS match found. Add details (material, composition, use, processing) for better suggestion.";
-    response.nextSteps.push("Add more product details for better HS classification");
+  if (p.includes("makhana")) {
+    result = {
+      demand: "High demand in UK health food market",
+      profit: "40-60%",
+      recommendation: "Strong niche opportunity",
+    };
+  } else if (p.includes("t-shirt")) {
+    result = {
+      demand: "Stable demand",
+      profit: "30-50%",
+      recommendation: "Highly competitive",
+    };
   } else {
-    response.hs_note = "HS code suggestions are guidance only. Confirm final HS code with a customs broker or official tariff tool.";
+    result = {
+      demand: "Moderate demand",
+      profit: "20-40%",
+      recommendation: "Test before scaling",
+    };
   }
 
-  response.nextSteps.push("Confirm HS code", "Talk to logistics partner", "Confirm importer/buyer details");
-
-  response.country_rules.push(
-    { title: "Importer of Record", detail: "Confirm who is the Importer of Record for the shipment." },
-    { title: "Tariff & Duties", detail: "Duties/VAT depend on HS code and origin. Confirm using official tariff tools." },
-    { title: "Invoice accuracy", detail: "Invoice must match packing list and include HS, incoterm, values, origin, and currency." }
-  );
-
-  response.compliance_checklist.push(
-    "Confirm Importer of Record (buyer or broker).",
-    "Confirm final HS code using a tariff tool or broker.",
-    "Prepare Commercial Invoice (HS, incoterm, values, origin, currency).",
-    "Prepare Packing List (weights, cartons, dimensions)."
-  );
-
-  response.official_links.push(
-    { label: "WCO HS information", url: "https://www.wcoomd.org/en/topics/nomenclature.aspx" },
-    { label: "UN/CEFACT trade facilitation", url: "https://unece.org/trade/cefact" }
-  );
-
-  if (category === "electronics") response.warnings.push("If the product uses Bluetooth/radio, check destination conformity approvals.");
-  if (category === "chemicals") response.warnings.push("If hazardous, confirm dangerous goods (DG) transport rules with your forwarder.");
-  if (category === "medical") response.warnings.push("Confirm conformity markings/certificates required in the destination market.");
-
-  if (dest === "uk") {
-    if (!response.documents.includes("EORI Number")) response.documents.push("EORI Number");
-
-    response.country_rules = [];
-    response.compliance_checklist = [];
-    response.official_links = [];
-
-    response.country_rules.push(
-      { title: "Importer of Record", detail: "Confirm who is the Importer of Record in the UK (buyer, agent, or broker)." },
-      { title: "Tariff & Duties", detail: "Duties/VAT depend on HS code and origin. Confirm with the UK Trade Tariff." },
-      { title: "Invoice accuracy", detail: "Invoice must match packing list and include HS, incoterm, values, origin, and currency." }
-    );
-
-    response.compliance_checklist.push(
-      "Confirm Importer of Record (buyer or broker).",
-      "Confirm final HS code using the UK Trade Tariff or a broker.",
-      "Prepare Commercial Invoice (HS, incoterm, values, origin, currency).",
-      "Prepare Packing List (weights, cartons, dimensions).",
-      "Confirm EORI details (usually importer)."
-    );
-
-    response.official_links.push(
-      { label: "UK Trade Tariff (duty lookup)", url: "https://www.trade-tariff.service.gov.uk/" },
-      { label: "Import goods into the UK (GOV.UK)", url: "https://www.gov.uk/import-goods-into-uk" }
-    );
-
-    if (category === "food" || category === "spices") {
-      response.journey_stage = "UK_FOOD_COMPLIANCE";
-
-      if (!response.documents.includes("Ingredients / Product Specification Sheet")) {
-        response.documents.push("Ingredients / Product Specification Sheet");
-      }
-
-      response.country_rules.push(
-        { title: "Food labeling", detail: "UK food imports must comply with labeling rules (ingredients, allergens, net weight, expiry/best-before, importer details)." },
-        { title: "Ingredients & allergens", detail: "Maintain a clear ingredient list and allergen statement. Keep a product spec sheet ready." }
-      );
-
-      response.compliance_checklist.push(
-        "Prepare Ingredients / Product Specification Sheet.",
-        "Prepare label info: ingredients, allergens, net weight, dates, importer details.",
-        "Confirm if any food certificates are needed (depends on product/category)."
-      );
-
-      response.official_links.push(
-        { label: "UK food labeling guidance", url: "https://www.gov.uk/food-labelling-and-packaging" },
-        { label: "Food Standards Agency (UK)", url: "https://www.food.gov.uk/" }
-      );
-    }
-  }
-
-  if (!response.warnings.length) {
-    response.warnings.push("Regulations vary by destination—verify local import rules before shipment.");
-  }
-const destUpper = String(country || "").trim().toUpperCase();
-
-response.country_pack = {
-  title: destUpper === "UK" ? "UK Rules Pack" : destUpper === "USA" ? "US Rules Pack" : `${destUpper} Rules Pack`,
-  badge: destUpper === "UK" ? "UK-first" : destUpper === "USA" ? "US" : destUpper,
-};
-  res.json(response);
+  res.json(result);
 });
 
 /* =========================
-   REPORTS API (SUPABASE)
+   SAVE REPORT
 ========================= */
-
-app.post("/api/market-opportunity", (req, res) => {
-
-const { product } = req.body;
-
-const markets = [
-{ country: "UK", score: 84, demand: "High" },
-{ country: "Germany", score: 77, demand: "High" },
-{ country: "USA", score: 71, demand: "Medium" },
-{ country: "UAE", score: 69, demand: "Medium" }
-];
-
-res.json({ markets });
-
-});
-
 app.post("/api/reports", async (req, res) => {
   const auth = await requireUser(req);
   if (auth.error) return res.status(401).json({ error: auth.error });
 
-  const { product, country, experience, result, lockedHs } = req.body;
-  if (!product || !country || !experience || !result || !lockedHs?.code) {
-    return res.status(400).json({ error: "Missing required report data" });
-  }
+  const { product, country, result } = req.body;
 
-  const row = {
-    user_id: auth.user.id,
-    email: auth.user.email,
-    product,
-    country,
-    experience,
-    hs_code: lockedHs.code,
-    hs_description: lockedHs.description || "",
-    risk_level: result.risk_level || "",
-    incoterm: result.recommended_incoterm || "",
-    journey_stage: result.journey_stage || "",
-    result,
-  };
-
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await supabase
     .from("export_reports")
-    .insert(row)
-    .select("id")
+    .insert({
+      user_id: auth.user.id,
+      product,
+      country,
+      result,
+    })
+    .select()
     .single();
 
   if (error) return res.status(500).json({ error: error.message });
 
-  res.json({ ok: true, reportId: data.id });
+  res.json({ report: data });
 });
 
+/* =========================
+   GET REPORTS
+========================= */
 app.get("/api/reports", async (req, res) => {
   const auth = await requireUser(req);
   if (auth.error) return res.status(401).json({ error: auth.error });
 
-  const { data, error } = await supabaseAdmin
-    .from("export_reports")
-    .select("id, product, country, experience, hs_code, hs_description, risk_level, incoterm, journey_stage, result, created_at")
-    .eq("user_id", auth.user.id)
-    .order("created_at", { ascending: false })
-    .limit(50);
-
-  if (error) return res.status(500).json({ error: error.message });
-
-  res.json({ ok: true, reports: data || [] });
-});
-
-app.get("/api/reports/:id", async (req, res) => {
-  const auth = await requireUser(req);
-  if (auth.error) return res.status(401).json({ error: auth.error });
-
-  const { id } = req.params;
-
-  const { data, error } = await supabaseAdmin
+  const { data } = await supabase
     .from("export_reports")
     .select("*")
-    .eq("id", id)
-    .eq("user_id", auth.user.id)
-    .single();
+    .eq("user_id", auth.user.id);
 
-  if (error || !data) return res.status(404).json({ error: "Report not found" });
-
-  res.json({ ok: true, report: data });
-});
-
-app.delete("/api/reports/:id", async (req, res) => {
-  const auth = await requireUser(req);
-  if (auth.error) return res.status(401).json({ error: auth.error });
-
-  const { id } = req.params;
-
-  const { data, error } = await supabaseAdmin
-    .from("export_reports")
-    .delete()
-    .eq("id", id)
-    .eq("user_id", auth.user.id)
-    .select("id")
-    .single();
-
-  if (error) return res.status(500).json({ error: error.message });
-  if (!data) return res.status(404).json({ error: "Report not found" });
-
-  res.json({ ok: true, deletedId: data.id });
+  res.json({ reports: data });
 });
 
 /* =========================
-   START
+   USER STATUS
 ========================= */
-app.listen(PORT, () => console.log(`🚀 Backend running on port ${PORT}`));
+app.get("/api/user-status", async (req, res) => {
+  const auth = await requireUser(req);
+  if (auth.error) return res.status(401).json({ error: auth.error });
+
+  const { data } = await supabase
+    .from("user_profiles")
+    .select("is_paid")
+    .eq("id", auth.user.id)
+    .single();
+
+  res.json({ isPaid: data?.is_paid || false });
+});
+
+/* =========================
+   START SERVER
+========================= */
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+});

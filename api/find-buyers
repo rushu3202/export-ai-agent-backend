@@ -1,32 +1,20 @@
-app.post("/api/find-buyers",(req,res)=>{
+app.post("/api/find-buyers", (req, res) => {
+  const { product, country } = req.body;
 
-const {product,country} = req.body
+  if (!product || !country) {
+    return res.status(400).json({ error: "Missing product or country" });
+  }
 
-const buyers = [
+  const normalizedCountry = country.toUpperCase(); // ✅ FIXED (inside)
 
-{
-company:"Organic Foods Ltd",
-country:"UK",
-type:"Organic food importer",
-website:"https://organicfoods.co.uk"
-},
+  const buyers = [
+    {
+      name: "UK Imports Ltd",
+      email: "sales@ukimports.com",
+      country: normalizedCountry,
+      type: "Distributor"
+    }
+  ];
 
-{
-company:"Health Ingredients Ltd",
-country:"UK",
-type:"Bulk ingredient importer",
-website:"https://healthingredients.co.uk"
-},
-
-{
-company:"Natural Superfoods Ltd",
-country:"UK",
-type:"Distributor",
-website:"https://naturalsuperfoods.co.uk"
-}
-
-]
-
-res.json({buyers})
-
-})
+  res.json({ buyers });
+});
